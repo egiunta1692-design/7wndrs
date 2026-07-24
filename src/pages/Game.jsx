@@ -20,6 +20,8 @@ import { page, cardWide, title, primaryButton, secondaryButton, pillButton, erro
 
 const COLOR_LABEL = { brown: '🟤', grey: '⚪', blue: '🔵', yellow: '🟡', red: '🔴', green: '🟢', purple: '🟣' }
 const RESOURCE_ICON = { clay: '🧱', stone: '🪨', ore: '⛏️', wood: '🪵', glass: '🔷', loom: '🧵', papyrus: '📜' }
+const SCIENCE_ICON = { compass: '🧭', gear: '⚙️', tablet: '📜' }
+const COLOR_NAME = { brown: 'Marrone', grey: 'Grigia', blue: 'Blu', yellow: 'Gialla', red: 'Rossa', green: 'Verde', purple: 'Viola' }
 
 function costLabel(cost = {}) {
   const parts = []
@@ -29,6 +31,97 @@ function costLabel(cost = {}) {
     parts.push(`${n}${RESOURCE_ICON[r] || r}`)
   }
   return parts.length ? parts.join(' ') : 'Gratis'
+}
+
+// Descrizione leggibile dell'effetto di una carta Epoca (usata sia
+// nelle carte in mano che nei "chip" delle città costruite).
+function cardEffectLabel(card) {
+  const e = card.effect
+  if (!e) return ''
+  switch (e.kind) {
+    case 'produce_fixed':
+      return `Produce ${e.amount || 1} ${RESOURCE_ICON[e.value] || e.value}`
+    case 'produce_choice':
+      return `Produce 1 a scelta: ${e.value.map((r) => RESOURCE_ICON[r]).join(' ')}`
+    case 'vp':
+      return `${e.value} 🏆 Punti Vittoria`
+    case 'coins_on_build':
+      return `+${e.value}🪙 subito`
+    case 'shields':
+      return `+${e.value} 🛡️ potenza militare`
+    case 'science':
+      return `Simbolo scientifico: ${SCIENCE_ICON[e.value] || e.value}`
+    case 'trade_discount': {
+      const who = e.value.neighbors.map((n) => (n === 'left' ? 'sinistro' : 'destro')).join('/')
+      return `Sconto commercio (1 invece di 2) dal vicino ${who}: ${e.value.resources.map((r) => RESOURCE_ICON[r]).join(' ')}`
+    }
+    case 'coins_per_color': {
+      const { color, coinsEach, scope } = e.value
+      return `+${coinsEach}🪙 per ogni carta ${COLOR_LABEL[color]} ${COLOR_NAME[color]} ${scope === 'self_and_neighbors' ? '(tua città + vicini)' : '(tua città)'}`
+    }
+    case 'per_color_coins_and_vp': {
+      const { color, coinsEach, vpEach } = e.value
+      return `+${coinsEach}🪙 alla costruzione e +${vpEach}🏆 a fine partita, per ogni carta ${COLOR_LABEL[color]} ${COLOR_NAME[color]} in città`
+    }
+    case 'coins_and_vp_per_wonder_stage':
+      return `+${e.value.coinsEach}🪙 e +${e.value.vpEach}🏆 per ogni stadio della tua Meraviglia`
+    case 'science_choice':
+      return `1 simbolo scientifico a scelta 🧭⚙️📜`
+    default:
+      return ''
+  }
+}
+
+// Descrizione leggibile dell'effetto di una Gilda (carta Viola).
+function guildEffectLabel(card) {
+  switch (card.scoringKind) {
+    case 'per_color_in_neighbors':
+      return `+${card.scoringValue.vpEach}🏆 per ogni carta ${COLOR_LABEL[card.scoringValue.color]} ${COLOR_NAME[card.scoringValue.color]} nelle città dei vicini`
+    case 'per_wonder_stage_self_and_neighbors':
+      return `+${card.scoringValue.vpEach}🏆 per ogni stadio Meraviglia (tuo + vicini)`
+    case 'all_wonder_stages_flat':
+      return `+${card.scoringValue.vp}🏆 se hai completato tutti gli stadi della tua Meraviglia`
+    case 'per_brown_grey_purple_self':
+      return `+${card.scoringValue.vpEach}🏆 per ogni carta Marrone/Grigia/Viola nella tua città`
+    case 'science_choice':
+      return `1 simbolo scientifico a scelta 🧭⚙️📜`
+    default:
+      return ''
+  }
+}
+
+function effectLabel(card) {
+  return card.color === 'purple' ? guildEffectLabel(card) : cardEffectLabel(card)
+}
+
+// Descrizione leggibile dell'effetto di uno stadio di Meraviglia.
+function wonderStageLabel(stage) {
+  switch (stage.effectKind) {
+    case 'vp':
+      return `${stage.effectValue} 🏆`
+    case 'coins':
+      return `+${stage.effectValue}🪙`
+    case 'vp_and_coins':
+      return `${stage.effectValue.vp}🏆 +${stage.effectValue.coins}🪙`
+    case 'produce_choice':
+      return `Produce a scelta: ${stage.effectValue.map((r) => RESOURCE_ICON[r]).join(' ')}`
+    case 'military':
+      return `+${stage.effectValue} 🛡️`
+    case 'science':
+      return `${stage.effectValue} simbolo/i scientifico/i a scelta 🧭⚙️📜`
+    case 'trade_discount':
+      return `Sconto commercio: ${stage.effectValue.resources.map((r) => RESOURCE_ICON[r]).join(' ')}`
+    case 'build_from_hand_free':
+      return `Costruisci gratis dalla mano (1 volta/Epoca)`
+    case 'build_from_discard':
+      return `Costruisci gratis dagli scarti`
+    case 'play_last_card':
+      return `Puoi giocare l'ultima carta di ogni Epoca`
+    case 'copy_guild':
+      return `Copia una Gilda di un vicino a fine partita`
+    default:
+      return ''
+  }
 }
 
 export default function Game({ profile }) {
@@ -41,7 +134,7 @@ export default function Game({ profile }) {
   const [myHandRows, setMyHandRows] = useState([]) // righe player_hands visibili (la mia + quella indirizzata a me)
   const [error, setError] = useState(null)
   const [selectedCardId, setSelectedCardId] = useState(null)
-  const resolvingRef = useRef(false)
+  const resolvingRef = useRef(null)
   const advancingRef = useRef(false)
   const dealingRef = useRef(false)
 
@@ -96,7 +189,6 @@ export default function Game({ profile }) {
 
   const myPlayer = useMemo(() => players.find((p) => p.user_id === myUserId), [players, myUserId])
   const myHand = useMemo(() => myHandRows.find((h) => h.user_id === myUserId), [myHandRows, myUserId])
-  const incomingHand = useMemo(() => myHandRows.find((h) => h.outgoing_hand_for === myUserId && h.user_id !== myUserId), [myHandRows, myUserId])
 
   const numPlayers = players.length
   const turnOrder = game?.turn_order || []
@@ -197,30 +289,42 @@ export default function Game({ profile }) {
   // APPLICAZIONE DEL TURNO — quando TUTTI hanno scelto (ready_this_turn),
   // ognuno applica SOLO la propria azione e recupera la propria nuova
   // mano dallo slot "outgoing" che il vicino le ha indirizzato.
+  //
+  // IMPORTANTE: qui NON ci si fida dello stato React (myHand, myPlayer)
+  // per decidere COSA applicare o SE è già stato applicato, perché può
+  // essere in ritardo rispetto alle scritture più recenti su Supabase
+  // (l'eco realtime arriva con un piccolo ritardo). Usare stato in
+  // ritardo qui causava due bug osservati in partita: monete negative
+  // (la stessa azione applicata due volte) e mano vuota (letta prima
+  // che il vicino avesse davvero scritto la propria "outgoing_hand").
+  // Per questo si rilegge sempre tutto fresco da Supabase subito prima
+  // di scrivere, e la scrittura decisiva (players.update) è protetta
+  // da una guardia atomica (.lt('turn_applied', ...)) che garantisce
+  // che, anche se questo blocco venisse eseguito due volte per errore,
+  // la seconda scrittura non trovi righe da aggiornare.
   // ============================================================
   useEffect(() => {
     if (!game || game.status !== 'playing' || !myPlayer || !myHand) return
     if (numPlayers === 0 || players.some((p) => !p.wonder_id)) return
     if (myPlayer.turn_applied >= game.turn_number) return
     if (!players.every((p) => p.ready_this_turn)) return
-    if (resolvingRef.current) return
-    resolvingRef.current = true
+    const turnKey = `${game.age}-${game.turn_number}`
+    if (resolvingRef.current === turnKey) return
+    resolvingRef.current = turnKey
 
     async function resolve() {
-      const prepared = myHand.pending_action
+      const { data: freshHand } = await supabase.from('player_hands').select().eq('id', myHand.id).single()
+      const prepared = freshHand?.pending_action
       if (!prepared) {
-        resolvingRef.current = false
+        resolvingRef.current = null
         return
       }
       const updatedPublic = applyPreparedAction(prepared, myPlayer)
-
       const isLastTurnOfAge = game.turn_number >= 6
-      let newHand = []
-      if (!isLastTurnOfAge) {
-        newHand = incomingHand?.outgoing_hand || []
-      }
 
-      await supabase
+      // Scrittura atomica: procede solo se turn_applied non è già
+      // arrivato a questo turno (protegge da doppia applicazione).
+      const { data: claimed } = await supabase
         .from('players')
         .update({
           coins: updatedPublic.coins,
@@ -230,29 +334,47 @@ export default function Game({ profile }) {
           turn_applied: game.turn_number
         })
         .eq('id', myPlayer.id)
+        .lt('turn_applied', game.turn_number)
+        .select()
 
-      await supabase
-        .from('player_hands')
-        .update({
-          hand: newHand,
-          pending_action: null,
-          outgoing_hand: null,
-          outgoing_hand_for: null,
-          dealt_age: isLastTurnOfAge ? myHand.dealt_age : game.age
-        })
-        .eq('id', myHand.id)
-
-      resolvingRef.current = false
+      if (claimed && claimed.length > 0) {
+        let newHand = []
+        if (!isLastTurnOfAge) {
+          // Rilettura fresca e mirata: cerca la riga che IL VICINO ha
+          // indirizzato a noi, invece di fidarsi della cache realtime.
+          const { data: incoming } = await supabase
+            .from('player_hands')
+            .select('outgoing_hand')
+            .eq('game_id', gameId)
+            .eq('outgoing_hand_for', myUserId)
+            .neq('user_id', myUserId)
+            .maybeSingle()
+          newHand = incoming?.outgoing_hand || []
+        }
+        await supabase
+          .from('player_hands')
+          .update({
+            hand: newHand,
+            pending_action: null,
+            outgoing_hand: null,
+            outgoing_hand_for: null,
+            dealt_age: isLastTurnOfAge ? freshHand.dealt_age : game.age
+          })
+          .eq('id', myHand.id)
+      }
+      resolvingRef.current = null
     }
     resolve()
-  }, [game, myPlayer, myHand, incomingHand, players, numPlayers])
+  }, [game, myPlayer, myHand, players, numPlayers, gameId, myUserId])
 
   // ============================================================
   // AVANZAMENTO TURNO/EPOCA — quando TUTTI hanno applicato la propria
   // azione per il turno corrente, un client qualsiasi prova a far
   // avanzare lo stato condiviso (con guardia ottimistica: se un altro
   // client arriva prima, il .eq() sotto non trova righe e non succede
-  // nulla di male).
+  // nulla di male). Rilegge sempre i giocatori freschi da Supabase
+  // prima di calcolare i conflitti militari, per lo stesso motivo
+  // spiegato sopra (evitare di usare stato React in ritardo).
   // ============================================================
   useEffect(() => {
     if (!game || game.status !== 'playing' || numPlayers === 0) return
@@ -272,32 +394,48 @@ export default function Game({ profile }) {
         return
       }
 
-      // Fine Epoca: risoluzione conflitti militari, poi Epoca successiva o fine partita.
-      const results = resolveMilitaryConflict(orderedPlayers, game.age)
-      const myTokens = results[myPlayer.id] || []
-      const newTokens = [...(myPlayer.military_tokens || []), ...myTokens]
+      // Fine Epoca: rilettura fresca di tutti i giocatori (non fidarsi
+      // dello stato React) prima di calcolare i conflitti militari.
+      const { data: freshRaw } = await supabase.from('players').select().eq('game_id', gameId)
+      const freshPlayers = (game.turn_order || []).map((id) => freshRaw?.find((p) => p.id === id)).filter(Boolean)
+      const freshMe = freshRaw?.find((p) => p.id === myPlayer.id) || myPlayer
+
+      // Idempotenza: se per qualche motivo questo blocco venisse
+      // eseguito due volte per la stessa Epoca (es. lo stato locale
+      // "game.age" non si è ancora aggiornato dopo che UN client ha già
+      // fatto avanzare l'Epoca), non aggiungere due volte i gettoni.
+      const alreadyResolvedThisAge = (freshMe.military_tokens || []).some((t) => t.age === game.age)
+      let newTokens = freshMe.military_tokens || []
+      if (!alreadyResolvedThisAge && freshPlayers.length === numPlayers) {
+        const results = resolveMilitaryConflict(freshPlayers, game.age)
+        const myTokens = results[myPlayer.id] || []
+        newTokens = [...newTokens, ...myTokens]
+      }
 
       if (game.age < 3) {
         const nextAge = game.age + 1
         const deck = buildAgeDeck(nextAge, numPlayers)
-        await supabase
-          .from('players')
-          .update({ military_tokens: newTokens, turn_applied: 0, ready_this_turn: false })
-          .eq('id', myPlayer.id)
+        if (!alreadyResolvedThisAge) {
+          await supabase
+            .from('players')
+            .update({ military_tokens: newTokens, turn_applied: 0, ready_this_turn: false })
+            .eq('id', myPlayer.id)
+        }
         await supabase
           .from('games')
           .update({ age: nextAge, turn_number: 1, age_decks: { ...game.age_decks, [nextAge]: deck } })
           .eq('id', gameId)
           .eq('age', game.age)
       } else {
-        // Ultima Epoca: calcola il punteggio finale di tutti (dati pubblici) e salva il proprio.
-        const playersWithMilitary = orderedPlayers.map((p) => (p.id === myPlayer.id ? { ...p, military_tokens: newTokens } : p))
-        const scores = scoreGame(playersWithMilitary)
-        const myScore = scores.find((s) => s.playerId === myPlayer.id)
-        await supabase
-          .from('players')
-          .update({ military_tokens: newTokens, final_score: myScore, turn_applied: 0, ready_this_turn: false })
-          .eq('id', myPlayer.id)
+        if (!alreadyResolvedThisAge) {
+          const playersWithMilitary = freshPlayers.map((p) => (p.id === myPlayer.id ? { ...p, military_tokens: newTokens } : p))
+          const scores = scoreGame(playersWithMilitary)
+          const myScore = scores.find((s) => s.playerId === myPlayer.id)
+          await supabase
+            .from('players')
+            .update({ military_tokens: newTokens, final_score: myScore, turn_applied: 0, ready_this_turn: false })
+            .eq('id', myPlayer.id)
+        }
         await supabase
           .from('games')
           .update({ status: 'finished', finished_at: new Date().toISOString() })
@@ -307,7 +445,7 @@ export default function Game({ profile }) {
       advancingRef.current = false
     }
     advance()
-  }, [game, players, orderedPlayers, myPlayer, numPlayers, gameId])
+  }, [game, players, myPlayer, numPlayers, gameId])
 
   if (!game || !myPlayer) return <Loader message="Carico la partita..." />
 
@@ -318,7 +456,7 @@ export default function Game({ profile }) {
     const canStart = numPlayers >= 3 && numPlayers <= 7 && players.every((p) => p.wonder_id)
     return (
       <div style={page}>
-        <div style={{ ...cardWide, width: 640 }}>
+        <div style={{ ...cardWide, width: 720 }}>
           <h1 style={title}>Stanza {game.room_code}</h1>
           <p style={{ textAlign: 'center', color: '#5a5142', marginTop: -12 }}>
             {numPlayers} giocator{numPlayers === 1 ? 'e' : 'i'} (min. 3, max. 7)
@@ -336,16 +474,26 @@ export default function Game({ profile }) {
           {!myPlayer.wonder_id && (
             <div>
               <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>Scegli la tua Meraviglia:</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
                 {WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).map((id) => (
                   <div key={id} style={{ border: '1px solid #e4ddcc', borderRadius: 10, padding: 8 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 4 }}>{WONDERS[id].name}</div>
-                    <button style={pillButton} onClick={() => chooseWonder(id, 'A')}>
-                      Lato A
-                    </button>{' '}
-                    <button style={pillButton} onClick={() => chooseWonder(id, 'B')}>
-                      Lato B
-                    </button>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      {WONDERS[id].name} <span style={{ fontWeight: 400, color: '#5a5142' }}>({RESOURCE_ICON[WONDERS[id].startResource]} partenza)</span>
+                    </div>
+                    {['A', 'B'].map((side) => (
+                      <div key={side} style={{ marginBottom: 4 }}>
+                        <button
+                          style={pillButton}
+                          onClick={() => chooseWonder(id, side)}
+                          title={WONDERS[id].sides[side].stages.map((s, i) => `Stadio ${i + 1}: ${costLabel(s.cost)} → ${wonderStageLabel(s)}`).join(' | ')}
+                        >
+                          Lato {side}
+                        </button>
+                        <span style={{ fontSize: '0.7rem', color: '#5a5142', marginLeft: 6 }}>
+                          {WONDERS[id].sides[side].stages.map((s) => wonderStageLabel(s)).join(' · ')}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -420,10 +568,13 @@ export default function Game({ profile }) {
   // ============================================================
   const hand = myHand?.hand || []
   const iAmReady = myPlayer.ready_this_turn
+  const myWonderSide = WONDERS[myPlayer.wonder_id]?.sides[myPlayer.wonder_side]
+  const myNextStage = myWonderSide?.stages[myPlayer.wonder_stages_built || 0]
+  const nextWonderStageLabel = myNextStage ? `${costLabel(myNextStage.cost)} → ${wonderStageLabel(myNextStage)}` : null
 
   return (
     <div style={page}>
-      <div style={{ ...cardWide, width: 760 }}>
+      <div style={{ ...cardWide, width: 860 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <h1 style={{ ...title, margin: 0 }}>
             Epoca {game.age} · Turno {game.turn_number}/6
@@ -433,26 +584,75 @@ export default function Game({ profile }) {
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 16px' }}>
-          {orderedPlayers.map((p) => (
-            <div
-              key={p.id}
-              style={{
-                border: p.id === myPlayer.id ? '2px solid #8a6a48' : '1px solid #e4ddcc',
-                borderRadius: 10,
-                padding: '6px 10px',
-                fontSize: '0.8rem'
-              }}
-            >
-              <div style={{ fontWeight: 700 }}>
-                {p.nickname} {p.ready_this_turn ? '✅' : '⏳'}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '10px 0 16px' }}>
+          {orderedPlayers.map((p) => {
+            const wonder = WONDERS[p.wonder_id]
+            const side = wonder?.sides[p.wonder_side]
+            const totalStages = side?.stages.length || 3
+            const cardsByColor = {}
+            for (const cardId of p.built_cards || []) {
+              const card = getCardData(cardId)
+              if (!card) continue
+              ;(cardsByColor[card.color] ||= []).push(card)
+            }
+            const militaryTotal = (p.military_tokens || []).reduce((sum, t) => sum + (t.value ?? 0), 0)
+            return (
+              <div
+                key={p.id}
+                style={{
+                  border: p.id === myPlayer.id ? '2px solid #8a6a48' : '1px solid #e4ddcc',
+                  borderRadius: 10,
+                  padding: '8px 12px',
+                  fontSize: '0.8rem',
+                  background: '#fff'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6 }}>
+                  <div>
+                    <strong>
+                      {p.nickname} {p.ready_this_turn ? '✅' : '⏳'}
+                    </strong>{' '}
+                    · {wonder?.name} ({p.wonder_side}) · 🪙{p.coins}
+                    {militaryTotal !== 0 && <> · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}</>}
+                  </div>
+                  <div title={side?.stages.map((s, i) => `Stadio ${i + 1}: ${costLabel(s.cost)} → ${wonderStageLabel(s)}`).join(' | ')}>
+                    {side?.stages.map((_, i) => (
+                      <span key={i} style={{ opacity: i < p.wonder_stages_built ? 1 : 0.25 }}>
+                        🏛️
+                      </span>
+                    ))}
+                    <span style={{ color: '#5a5142' }}>
+                      {' '}
+                      {p.wonder_stages_built}/{totalStages}
+                    </span>
+                  </div>
+                </div>
+                {Object.keys(cardsByColor).length === 0 ? (
+                  <div style={{ color: '#a89b86', marginTop: 4 }}>Nessun edificio costruito ancora</div>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                    {Object.entries(cardsByColor).map(([color, cards]) =>
+                      cards.map((card) => (
+                        <span
+                          key={card.id}
+                          title={`${costLabel(card.cost)} → ${effectLabel(card)}`}
+                          style={{
+                            background: '#f5f0e6',
+                            border: '1px solid #e4ddcc',
+                            borderRadius: 6,
+                            padding: '2px 6px',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {COLOR_LABEL[color]} {card.name}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
-              <div>
-                {WONDERS[p.wonder_id]?.name} ({p.wonder_side}) · 🪙{p.coins} · 🏛️{p.wonder_stages_built}
-              </div>
-              <div>{(p.built_cards || []).length} edifici</div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {iAmReady ? (
@@ -473,7 +673,7 @@ export default function Game({ profile }) {
                       border: selected ? '2px solid #8a6a48' : '1px solid #e4ddcc',
                       borderRadius: 10,
                       padding: 10,
-                      width: 150,
+                      width: 190,
                       cursor: 'pointer',
                       background: '#fff'
                     }}
@@ -481,17 +681,18 @@ export default function Game({ profile }) {
                     <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
                       {COLOR_LABEL[card.color]} {card.name}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#5a5142' }}>{costLabel(card.cost)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#5a5142' }}>Costo: {costLabel(card.cost)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 2 }}>{effectLabel(card)}</div>
                     {selected && (
                       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <button style={pillButton} onClick={() => chooseAction(cardId, 'build')}>
-                          🏗️ Costruisci
+                          🏗️ Costruisci edificio
                         </button>
-                        <button style={pillButton} onClick={() => chooseAction(cardId, 'wonder')}>
-                          🏛️ Stadio Meraviglia
+                        <button style={pillButton} onClick={() => chooseAction(cardId, 'wonder')} title={nextWonderStageLabel}>
+                          🏛️ Stadio Meraviglia{nextWonderStageLabel ? ` (${nextWonderStageLabel})` : ''}
                         </button>
                         <button style={pillButton} onClick={() => chooseAction(cardId, 'discard')}>
-                          💰 Vendi (+3)
+                          💰 Vendi (+3🪙)
                         </button>
                       </div>
                     )}

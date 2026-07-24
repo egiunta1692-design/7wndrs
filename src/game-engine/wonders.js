@@ -1,19 +1,27 @@
 // ============================================================
 // PLANCE MERAVIGLIA — 7 Meraviglie x 2 lati (A/B) x fino a 4 stadi.
 //
-// LIVELLO DI CONFIDENZA (leggi prima di fidarti ciecamente, stesso
-// spirito delle note su animalCards.js in Harmonies):
-// - I numeri grandi (Punti Vittoria, Monete) sono letti direttamente e
-//   con sicurezza dalle foto allegate (es. Gizah A: 3/5/7 — numeri
-//   grandi e inequivocabili).
-// - Le RISORSE esatte di costo di ogni stadio sono ricostruite dalla
-//   mia conoscenza generale del gioco (icone troppo piccole nelle foto
-//   per essere lette pixel per pixel con certezza assoluta) — quindi
-//   PRIMA DI GIOCARE SUL SERIO conviene controllare ogni plancia contro
-//   quella fisica e correggere qui, è un file isolato, una riga per
-//   stadio. Le abilità speciali (produzione a scelta, sconti commercio,
-//   copia gilda, ecc.) sono codificate con "effectKind" + "effectValue"
-//   già pronti per l'engine, ma vale lo stesso invito a verifica.
+// LIVELLO DI CONFIDENZA (aggiornato 24/07 dopo revisione con screenshot
+// ufficiali ad alta risoluzione — molto più leggibili delle foto fisiche):
+//
+// - ALTA CONFIDENZA, verificato con zoom pixel-per-pixel sugli screenshot:
+//   Alexandria (A e B), Babylon (A e B), Ephesos (A e B), Gizah (A e B,
+//   incluso il fatto che il lato B ha 4 stadi e non 3). Le risorse di
+//   partenza di tutte e 7 le Meraviglie sono confermate su entrambi i lati.
+// - Gizah B, stadi 2 e 3: il tipo di risorsa (Pietra vs Minerale) resta
+//   con margine di incertezza — le icone dei due stadi sono molto simili
+//   nello screenshot e non sono riuscito a distinguerle con certezza
+//   assoluta prima di un problema tecnico di visualizzazione.
+// - MEDIA CONFIDENZA, NON ancora riverificato con gli screenshot ad alta
+//   risoluzione (dati della ricostruzione originale da conoscenza generale
+//   del gioco, invariati): Halikarnassós (A/B), Olympia (A/B), Rhodos (A/B).
+//   Un problema tecnico di visualizzazione ha interrotto la sessione di
+//   verifica prima di arrivare a queste tre — riprendibile in una nuova
+//   conversazione (bastano gli stessi screenshot, o anche solo quelli
+//   mancanti: Halikarnassós, Olympia, Rhodos, giorno e notte).
+// - Le abilità speciali (produzione a scelta, sconti commercio, copia
+//   gilda, costruisci gratis dagli scarti/dalla mano) sono codificate nei
+//   dati sotto ma non hanno ancora un'interfaccia interattiva in Game.jsx.
 // ============================================================
 
 export const RESOURCES = ['clay', 'stone', 'ore', 'wood', 'glass', 'loom', 'papyrus']
@@ -38,6 +46,7 @@ export const WONDERS = {
     startResource: 'glass',
     sides: {
       A: {
+        // Verificato su immagini alta risoluzione (day/night wiki) 24/07: confermato identico ai dati precedenti.
         stages: [
           { cost: { ore: 2 }, effectKind: 'vp', effectValue: 3 },
           { cost: { ore: 2 }, effectKind: 'produce_choice', effectValue: RAW_RESOURCES },
@@ -45,10 +54,11 @@ export const WONDERS = {
         ]
       },
       B: {
+        // Corretto 24/07: non è uno sconto commercio, è produzione a scelta (visto chiaramente sull'immagine ad alta risoluzione).
         stages: [
-          { cost: { wood: 2 }, effectKind: 'trade_discount', effectValue: { resources: RAW_RESOURCES, neighbors: ['left', 'right'] } },
-          { cost: { clay: 2 }, effectKind: 'trade_discount', effectValue: { resources: RARE_RESOURCES, neighbors: ['left', 'right'] } },
-          { cost: { stone: 3 }, effectKind: 'vp', effectValue: 7 }
+          { cost: { clay: 2 }, effectKind: 'produce_choice', effectValue: RAW_RESOURCES },
+          { cost: { ore: 3 }, effectKind: 'produce_choice', effectValue: RARE_RESOURCES },
+          { cost: { wood: 4 }, effectKind: 'vp', effectValue: 7 }
         ]
       }
     }
@@ -58,16 +68,18 @@ export const WONDERS = {
     startResource: 'clay',
     sides: {
       A: {
+        // Corretto 24/07: stadio 2 costa Minerale (non risorse miste) e da' scelta libera di un simbolo scientifico.
         stages: [
           { cost: { clay: 2 }, effectKind: 'vp', effectValue: 3 },
-          { cost: { wood: 1, loom: 1, clay: 1 }, effectKind: 'produce_choice', effectValue: RARE_RESOURCES },
+          { cost: { ore: 3 }, effectKind: 'science', effectValue: 1 },
           { cost: { clay: 4 }, effectKind: 'vp', effectValue: 7 }
         ]
       },
       B: {
+        // Corretto 24/07: costi rivisti dopo lettura ravvicinata.
         stages: [
-          { cost: { loom: 1, clay: 1 }, effectKind: 'vp', effectValue: 3 },
-          { cost: { glass: 1, wood: 2, clay: 1 }, effectKind: 'build_from_hand_free' },
+          { cost: { ore: 2 }, effectKind: 'vp', effectValue: 3 },
+          { cost: { clay: 2, glass: 1 }, effectKind: 'build_from_hand_free' },
           { cost: { clay: 3, ore: 2 }, effectKind: 'science', effectValue: 1 }
         ]
       }
@@ -78,17 +90,19 @@ export const WONDERS = {
     startResource: 'papyrus',
     sides: {
       A: {
+        // Corretto 24/07: stadio1 Argilla (non Pietra), stadio3 Minerale (non Papiro).
         stages: [
-          { cost: { stone: 2 }, effectKind: 'vp', effectValue: 3 },
+          { cost: { clay: 2 }, effectKind: 'vp', effectValue: 3 },
           { cost: { wood: 2 }, effectKind: 'coins', effectValue: 9 },
-          { cost: { papyrus: 2 }, effectKind: 'vp', effectValue: 7 }
+          { cost: { ore: 2 }, effectKind: 'vp', effectValue: 7 }
         ]
       },
       B: {
+        // Corretto 24/07: costi rivisti (Minerale/Legno/Vetro+Tessuto), effetti PV+monete confermati.
         stages: [
-          { cost: { stone: 2 }, effectKind: 'vp_and_coins', effectValue: { vp: 2, coins: 4 } },
-          { cost: { wood: 1, ore: 1 }, effectKind: 'vp_and_coins', effectValue: { vp: 3, coins: 4 } },
-          { cost: { papyrus: 1, glass: 1 }, effectKind: 'vp_and_coins', effectValue: { vp: 5, coins: 4 } }
+          { cost: { ore: 2 }, effectKind: 'vp_and_coins', effectValue: { vp: 2, coins: 4 } },
+          { cost: { wood: 2 }, effectKind: 'vp_and_coins', effectValue: { vp: 3, coins: 4 } },
+          { cost: { glass: 2, loom: 1 }, effectKind: 'vp_and_coins', effectValue: { vp: 5, coins: 4 } }
         ]
       }
     }
@@ -98,15 +112,18 @@ export const WONDERS = {
     startResource: 'stone',
     sides: {
       A: {
+        // Verificato su immagini alta risoluzione 24/07: 2 Legno->3PV, 3 Argilla->5PV, 4 Minerale->7PV.
         stages: [
-          { cost: { ore: 2 }, effectKind: 'vp', effectValue: 3 },
+          { cost: { wood: 2 }, effectKind: 'vp', effectValue: 3 },
           { cost: { clay: 3 }, effectKind: 'vp', effectValue: 5 },
-          { cost: { ore: 3 }, effectKind: 'vp', effectValue: 7 }
+          { cost: { ore: 4 }, effectKind: 'vp', effectValue: 7 }
         ]
       },
       B: {
+        // Confermato 24/07: 4 stadi (non 3). Stadio2/3 Pietra/Argilla da riverificare
+        // (icone molto simili tra loro nello screenshot, vedi nota in cima al file).
         stages: [
-          { cost: { ore: 2 }, effectKind: 'vp', effectValue: 3 },
+          { cost: { wood: 2 }, effectKind: 'vp', effectValue: 3 },
           { cost: { stone: 3 }, effectKind: 'vp', effectValue: 5 },
           { cost: { clay: 3 }, effectKind: 'vp', effectValue: 5 },
           { cost: { ore: 4 }, effectKind: 'vp', effectValue: 7 }
