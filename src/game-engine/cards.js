@@ -67,7 +67,8 @@ export const CARDS = [
     color: 'yellow',
     minPlayers: 3,
     cost: {},
-    effect: { kind: 'trade_discount', value: { resources: RARE, neighbors: ['left', 'right'] } }
+    effect: { kind: 'trade_discount', value: { resources: RARE, neighbors: ['left', 'right'] } },
+    chainTo: ['caravanserraglio']
   },
   {
     id: 'stazione-ovest',
@@ -124,7 +125,8 @@ export const CARDS = [
     color: 'yellow',
     minPlayers: 3,
     cost: { wood: 2 },
-    effect: { kind: 'produce_choice', value: RAW }
+    effect: { kind: 'produce_choice', value: RAW },
+    chainFrom: ['mercato']
   },
   { id: 'foro', name: 'Foro', age: 2, color: 'yellow', minPlayers: 3, cost: { clay: 2 }, effect: { kind: 'produce_choice', value: RARE }, chainFrom: ['stazione-ovest', 'stazione-est'] },
   {

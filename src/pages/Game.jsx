@@ -20,8 +20,33 @@ import { page, cardWide, title, primaryButton, secondaryButton, pillButton, erro
 
 const COLOR_LABEL = { brown: '🟤', grey: '⚪', blue: '🔵', yellow: '🟡', red: '🔴', green: '🟢', purple: '🟣' }
 const RESOURCE_ICON = { clay: '🧱', stone: '🪨', ore: '⛏️', wood: '🪵', glass: '🔷', loom: '🧵', papyrus: '📜' }
+const RESOURCE_NAME = { clay: 'Argilla', stone: 'Pietra', ore: 'Minerale', wood: 'Legno', glass: 'Vetro', loom: 'Tessuto', papyrus: 'Papiro' }
 const SCIENCE_ICON = { compass: '🧭', gear: '⚙️', tablet: '📜' }
 const COLOR_NAME = { brown: 'Marrone', grey: 'Grigia', blue: 'Blu', yellow: 'Gialla', red: 'Rossa', green: 'Verde', purple: 'Viola' }
+
+function wonderStartResourceLabel(wonderId) {
+  const r = WONDERS[wonderId]?.startResource
+  if (!r) return ''
+  return `${RESOURCE_ICON[r]} ${RESOURCE_NAME[r]}`
+}
+
+// Etichetta dei simboli di concatenazione di una carta: "gratis se hai
+// già costruito X" (chainFrom) e, informativamente, "sblocca gratis Y"
+// (chainTo) — quest'ultimo non è usato dal motore per le regole (che
+// legge solo chainFrom sulla carta di destinazione) ma aiuta a vedere
+// subito cosa conviene costruire prima.
+function chainLabel(card) {
+  const parts = []
+  if (card.chainFrom?.length) {
+    const names = card.chainFrom.map((id) => getCardData(id)?.name || id).join(' o ')
+    parts.push(`🔗 Gratis se hai: ${names}`)
+  }
+  if (card.chainTo?.length) {
+    const names = card.chainTo.map((id) => getCardData(id)?.name || id).join(', ')
+    parts.push(`🔓 Sblocca gratis: ${names}`)
+  }
+  return parts
+}
 
 function costLabel(cost = {}) {
   const parts = []
@@ -466,7 +491,7 @@ export default function Game({ profile }) {
             {players.map((p) => (
               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #eee' }}>
                 <span>{p.nickname}</span>
-                <span>{p.wonder_id ? `${WONDERS[p.wonder_id].name} (${p.wonder_side})` : '— sceglie...'}</span>
+                <span>{p.wonder_id ? `${WONDERS[p.wonder_id].name} (${p.wonder_side}) · ${wonderStartResourceLabel(p.wonder_id)}` : '— sceglie...'}</span>
               </div>
             ))}
           </div>
@@ -478,7 +503,7 @@ export default function Game({ profile }) {
                 {WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).map((id) => (
                   <div key={id} style={{ border: '1px solid #e4ddcc', borderRadius: 10, padding: 8 }}>
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                      {WONDERS[id].name} <span style={{ fontWeight: 400, color: '#5a5142' }}>({RESOURCE_ICON[WONDERS[id].startResource]} partenza)</span>
+                      {WONDERS[id].name} <span style={{ fontWeight: 400, color: '#5a5142' }}>({wonderStartResourceLabel(id)} di partenza)</span>
                     </div>
                     {['A', 'B'].map((side) => (
                       <div key={side} style={{ marginBottom: 4 }}>
@@ -612,7 +637,7 @@ export default function Game({ profile }) {
                     <strong>
                       {p.nickname} {p.ready_this_turn ? '✅' : '⏳'}
                     </strong>{' '}
-                    · {wonder?.name} ({p.wonder_side}) · 🪙{p.coins}
+                    · {wonder?.name} ({p.wonder_side}) · {wonderStartResourceLabel(p.wonder_id)} · 🪙{p.coins}
                     {militaryTotal !== 0 && <> · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}</>}
                   </div>
                   <div title={side?.stages.map((s, i) => `Stadio ${i + 1}: ${costLabel(s.cost)} → ${wonderStageLabel(s)}`).join(' | ')}>
@@ -635,7 +660,7 @@ export default function Game({ profile }) {
                       cards.map((card) => (
                         <span
                           key={card.id}
-                          title={`${costLabel(card.cost)} → ${effectLabel(card)}`}
+                          title={`${costLabel(card.cost)} → ${effectLabel(card)}${chainLabel(card).length ? ' | ' + chainLabel(card).join(' | ') : ''}`}
                           style={{
                             background: '#f5f0e6',
                             border: '1px solid #e4ddcc',
@@ -683,6 +708,11 @@ export default function Game({ profile }) {
                     </div>
                     <div style={{ fontSize: '0.75rem', color: '#5a5142' }}>Costo: {costLabel(card.cost)}</div>
                     <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 2 }}>{effectLabel(card)}</div>
+                    {chainLabel(card).map((line, i) => (
+                      <div key={i} style={{ fontSize: '0.7rem', color: '#8a6a48', marginTop: 2 }}>
+                        {line}
+                      </div>
+                    ))}
                     {selected && (
                       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <button style={pillButton} onClick={() => chooseAction(cardId, 'build')}>
