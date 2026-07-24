@@ -12,6 +12,7 @@ import {
   prepareAction,
   applyPreparedAction,
   resolveMilitaryConflict,
+  computeMilitaryStrength,
   scoreGame,
   getCardData
 } from '../game-engine'
@@ -676,6 +677,7 @@ export default function Game({ profile }) {
               ;(cardsByColor[card.color] ||= []).push(card)
             }
             const militaryTotal = (p.military_tokens || []).reduce((sum, t) => sum + (t.value ?? 0), 0)
+            const militaryStrength = computeMilitaryStrength(p)
             const live = liveScoresById[p.id]
             return (
               <div
@@ -692,14 +694,14 @@ export default function Game({ profile }) {
                   <strong>
                     {p.nickname} {p.ready_this_turn ? '✅' : '⏳'}
                   </strong>
-                  <div>
-                    🪙{p.coins} · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}
+                  <div title="⚔️ = scudi accumulati finora (potenza attuale). 🛡️ = Punti Vittoria militari già assegnati nei conflitti di fine Epoca passati.">
+                    🪙{p.coins} · ⚔️{militaryStrength} potenza · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal} PV
                   </div>
                 </div>
 
                 {live && (
                   <div
-                    title="Punteggio live: quanto varrebbe la tua città se la partita finisse ora. I Militari si aggiornano solo a fine Epoca (come da regolamento), non a ogni turno."
+                    title="Punteggio live: quanto varrebbe la tua città se la partita finisse ora. 'Militari' sono i Punti Vittoria dei conflitti già risolti a fine Epoca — la potenza accumulata in quella in corso conta solo alla fine (vedi ⚔️ sopra)."
                     style={{
                       display: 'flex',
                       flexWrap: 'wrap',
@@ -713,7 +715,7 @@ export default function Game({ profile }) {
                       marginTop: 6
                     }}
                   >
-                    <span>🛡️ Militari {live.military}</span>
+                    <span>🛡️ Militari (PV) {live.military}</span>
                     <span>💰 Tesoro {live.treasury}</span>
                     <span>🏛️ Meraviglia {live.wonder}</span>
                     <span>🔵 Blu {live.blue}</span>
