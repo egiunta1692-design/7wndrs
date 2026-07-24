@@ -694,14 +694,14 @@ export default function Game({ profile }) {
                   <strong>
                     {p.nickname} {p.ready_this_turn ? '✅' : '⏳'}
                   </strong>
-                  <div title="⚔️ = scudi accumulati finora (potenza attuale). 🛡️ = Punti Vittoria militari già assegnati nei conflitti di fine Epoca passati.">
-                    🪙{p.coins} · ⚔️{militaryStrength} potenza · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal} PV
+                  <div title="🛡️ = Punti Vittoria militari già assegnati nei conflitti di fine Epoca passati.">
+                    🪙{p.coins} · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}
                   </div>
                 </div>
 
                 {live && (
                   <div
-                    title="Punteggio live: quanto varrebbe la tua città se la partita finisse ora. 'Militari' sono i Punti Vittoria dei conflitti già risolti a fine Epoca — la potenza accumulata in quella in corso conta solo alla fine (vedi ⚔️ sopra)."
+                    title="Punteggio live: quanto varrebbe la tua città se la partita finisse ora. 'Militari' sono i Punti Vittoria dei conflitti già risolti a fine Epoca; ⚔️ è la potenza accumulata nell'Epoca in corso, che conta solo alla fine."
                     style={{
                       display: 'flex',
                       flexWrap: 'wrap',
@@ -715,7 +715,7 @@ export default function Game({ profile }) {
                       marginTop: 6
                     }}
                   >
-                    <span>🛡️ Militari (PV) {live.military}</span>
+                    <span>🛡️ Militari {live.military} (⚔️{militaryStrength})</span>
                     <span>💰 Tesoro {live.treasury}</span>
                     <span>🏛️ Meraviglia {live.wonder}</span>
                     <span>🔵 Blu {live.blue}</span>
