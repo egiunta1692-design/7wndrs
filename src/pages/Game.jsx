@@ -560,7 +560,7 @@ export default function Game({ profile }) {
                           Lato {side}
                         </button>
                         <span style={{ fontSize: '0.7rem', color: '#5a5142', marginLeft: 6 }}>
-                          {WONDERS[id].sides[side].stages.map((s) => wonderStageLabel(s)).join(' · ')}
+                          {WONDERS[id].sides[side].stages.map((s, i) => `${i + 1}: ${costLabel(s.cost)}→${wonderStageLabel(s)}`).join(' · ')}
                         </span>
                       </div>
                     ))}
@@ -644,7 +644,7 @@ export default function Game({ profile }) {
 
   return (
     <div style={page}>
-      <div style={{ ...cardWide, width: 860 }}>
+      <div style={{ ...cardWide, width: 920 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <h1 style={{ ...title, margin: 0 }}>
             Epoca {game.age} · Turno {game.turn_number}/6
@@ -658,7 +658,6 @@ export default function Game({ profile }) {
           {orderedPlayers.map((p) => {
             const wonder = WONDERS[p.wonder_id]
             const side = wonder?.sides[p.wonder_side]
-            const totalStages = side?.stages.length || 3
             const cardsByColor = {}
             for (const cardId of p.built_cards || []) {
               const card = getCardData(cardId)
@@ -678,48 +677,86 @@ export default function Game({ profile }) {
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6 }}>
+                  <strong>
+                    {p.nickname} {p.ready_this_turn ? '✅' : '⏳'}
+                  </strong>
                   <div>
-                    <strong>
-                      {p.nickname} {p.ready_this_turn ? '✅' : '⏳'}
-                    </strong>{' '}
-                    · {wonder?.name} ({p.wonder_side}) · {wonderStartResourceLabel(p.wonder_id)} · 🪙{p.coins}
+                    🪙{p.coins}
                     {militaryTotal !== 0 && <> · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}</>}
                   </div>
-                  <div title={side?.stages.map((s, i) => `Stadio ${i + 1}: ${costLabel(s.cost)} → ${wonderStageLabel(s)}`).join(' | ')}>
-                    {side?.stages.map((_, i) => (
-                      <span key={i} style={{ opacity: i < p.wonder_stages_built ? 1 : 0.25 }}>
-                        🏛️
-                      </span>
-                    ))}
-                    <span style={{ color: '#5a5142' }}>
-                      {' '}
-                      {p.wonder_stages_built}/{totalStages}
-                    </span>
-                  </div>
                 </div>
-                {Object.keys(cardsByColor).length === 0 ? (
-                  <div style={{ color: '#a89b86', marginTop: 4 }}>Nessun edificio costruito ancora</div>
-                ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-                    {Object.entries(cardsByColor).map(([color, cards]) =>
-                      cards.map((card) => (
-                        <span
-                          key={card.id}
-                          title={`${costLabel(card.cost)} → ${effectLabel(card)}${chainLabel(card).length ? ' | ' + chainLabel(card).join(' | ') : ''}`}
-                          style={{
-                            background: '#f5f0e6',
-                            border: '1px solid #e4ddcc',
-                            borderRadius: 6,
-                            padding: '2px 6px',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {COLOR_LABEL[color]} {card.name}
-                        </span>
-                      ))
+
+                <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                  {/* ---- Area Meraviglia: plancia + stadi ---- */}
+                  <div
+                    style={{
+                      width: 220,
+                      flexShrink: 0,
+                      background: '#faf6ec',
+                      border: '1px solid #e4ddcc',
+                      borderRadius: 8,
+                      padding: 6
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      🏛️ {wonder?.name} ({p.wonder_side})
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#5a5142', marginBottom: 4 }}>{wonderStartResourceLabel(p.wonder_id)} di partenza</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {side?.stages.map((s, i) => {
+                        const built = i < p.wonder_stages_built
+                        return (
+                          <div
+                            key={i}
+                            style={{
+                              background: built ? '#e9dfc8' : '#fff',
+                              border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
+                              borderRadius: 6,
+                              padding: '2px 6px',
+                              opacity: built ? 1 : 0.65,
+                              fontWeight: built ? 700 : 400,
+                              fontSize: '0.72rem'
+                            }}
+                          >
+                            {built ? '🏛️' : '▫️'} {i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* ---- Area Città: edifici costruiti, una riga per colore ---- */}
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    {Object.keys(cardsByColor).length === 0 ? (
+                      <div style={{ color: '#a89b86' }}>Nessun edificio costruito ancora</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
+                          .filter((color) => cardsByColor[color])
+                          .map((color) => (
+                            <div key={color} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.68rem', color: '#a89b86', width: 14 }}>{COLOR_LABEL[color]}</span>
+                              {cardsByColor[color].map((card) => (
+                                <span
+                                  key={card.id}
+                                  title={`${costLabel(card.cost)} → ${effectLabel(card)}${chainLabel(card).length ? ' | ' + chainLabel(card).join(' | ') : ''}`}
+                                  style={{
+                                    background: '#f5f0e6',
+                                    border: '1px solid #e4ddcc',
+                                    borderRadius: 6,
+                                    padding: '2px 6px',
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                >
+                                  {card.name}
+                                </span>
+                              ))}
+                            </div>
+                          ))}
+                      </div>
                     )}
                   </div>
-                )}
+                </div>
               </div>
             )
           })}
