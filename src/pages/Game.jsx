@@ -275,6 +275,17 @@ export default function Game({ profile }) {
 
   const orderedPlayers = useMemo(() => turnOrder.map((id) => players.find((p) => p.id === id)).filter(Boolean), [turnOrder, players])
 
+  // Punteggio "live": stesso motore usato per il punteggio finale
+  // (scoreGame), calcolato però in ogni momento sullo stato attuale.
+  // È una stima di "quanto varrebbe la mia città se la partita finisse
+  // ora" — i Militari restano a 0 finché l'Epoca non si conclude,
+  // esattamente come da regolamento (il conflitto si risolve a fine
+  // Epoca, non a ogni turno).
+  const liveScoresById = useMemo(() => {
+    if (orderedPlayers.length === 0 || orderedPlayers.some((p) => !p.wonder_id)) return {}
+    return Object.fromEntries(scoreGame(orderedPlayers).map((s) => [s.playerId, s]))
+  }, [orderedPlayers])
+
   const leftNeighbor = mySeat >= 0 ? seatToPlayer[leftNeighborSeat(mySeat, numPlayers)] : null
   const rightNeighbor = mySeat >= 0 ? seatToPlayer[rightNeighborSeat(mySeat, numPlayers)] : null
 
@@ -644,7 +655,7 @@ export default function Game({ profile }) {
 
   return (
     <div style={page}>
-      <div style={{ ...cardWide, width: 920 }}>
+      <div style={{ ...cardWide, width: 980 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <h1 style={{ ...title, margin: 0 }}>
             Epoca {game.age} · Turno {game.turn_number}/6
@@ -665,6 +676,7 @@ export default function Game({ profile }) {
               ;(cardsByColor[card.color] ||= []).push(card)
             }
             const militaryTotal = (p.military_tokens || []).reduce((sum, t) => sum + (t.value ?? 0), 0)
+            const live = liveScoresById[p.id]
             return (
               <div
                 key={p.id}
@@ -681,10 +693,36 @@ export default function Game({ profile }) {
                     {p.nickname} {p.ready_this_turn ? '✅' : '⏳'}
                   </strong>
                   <div>
-                    🪙{p.coins}
-                    {militaryTotal !== 0 && <> · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}</>}
+                    🪙{p.coins} · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}
                   </div>
                 </div>
+
+                {live && (
+                  <div
+                    title="Punteggio live: quanto varrebbe la tua città se la partita finisse ora. I Militari si aggiornano solo a fine Epoca (come da regolamento), non a ogni turno."
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                      fontSize: '0.72rem',
+                      color: '#5a5142',
+                      background: '#f5f0e6',
+                      border: '1px solid #e4ddcc',
+                      borderRadius: 6,
+                      padding: '3px 8px',
+                      marginTop: 6
+                    }}
+                  >
+                    <span>🛡️ Militari {live.military}</span>
+                    <span>💰 Tesoro {live.treasury}</span>
+                    <span>🏛️ Meraviglia {live.wonder}</span>
+                    <span>🔵 Blu {live.blue}</span>
+                    <span>🟡 Gialle {live.yellow}</span>
+                    <span>🟢 Verdi {live.green}</span>
+                    <span>🟣 Viola {live.purple}</span>
+                    <span style={{ fontWeight: 700, color: '#3d3527' }}>= {live.total} 🏆</span>
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                   {/* ---- Area Meraviglia: plancia + stadi ---- */}
@@ -726,31 +764,41 @@ export default function Game({ profile }) {
                   </div>
 
                   {/* ---- Area Città: edifici costruiti, una riga per colore ---- */}
-                  <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{ flex: 1, minWidth: 260 }}>
                     {Object.keys(cardsByColor).length === 0 ? (
                       <div style={{ color: '#a89b86' }}>Nessun edificio costruito ancora</div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                         {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
                           .filter((color) => cardsByColor[color])
                           .map((color) => (
-                            <div key={color} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: '0.68rem', color: '#a89b86', width: 14 }}>{COLOR_LABEL[color]}</span>
-                              {cardsByColor[color].map((card) => (
-                                <span
-                                  key={card.id}
-                                  title={`${costLabel(card.cost)} → ${effectLabel(card)}${chainLabel(card).length ? ' | ' + chainLabel(card).join(' | ') : ''}`}
-                                  style={{
-                                    background: '#f5f0e6',
-                                    border: '1px solid #e4ddcc',
-                                    borderRadius: 6,
-                                    padding: '2px 6px',
-                                    whiteSpace: 'nowrap'
-                                  }}
-                                >
-                                  {card.name}
-                                </span>
-                              ))}
+                            <div key={color} style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.68rem', color: '#a89b86', paddingTop: 4, width: 14 }}>{COLOR_LABEL[color]}</span>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1 }}>
+                                {cardsByColor[color].map((card) => (
+                                  <div
+                                    key={card.id}
+                                    style={{
+                                      background: '#f5f0e6',
+                                      border: '1px solid #e4ddcc',
+                                      borderRadius: 6,
+                                      padding: '3px 6px',
+                                      minWidth: 130,
+                                      maxWidth: 170
+                                    }}
+                                  >
+                                    <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
+                                      {COLOR_LABEL[color]} {card.name}
+                                    </div>
+                                    <div style={{ fontSize: '0.66rem', color: '#3d3527' }}>{effectLabel(card)}</div>
+                                    {chainLabel(card).map((line, i) => (
+                                      <div key={i} style={{ fontSize: '0.62rem', color: '#8a6a48' }}>
+                                        {line}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           ))}
                       </div>
