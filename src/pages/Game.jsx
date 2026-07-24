@@ -21,7 +21,7 @@ import { page, cardWide, title, primaryButton, secondaryButton, pillButton, erro
 const COLOR_LABEL = { brown: '🟤', grey: '⚪', blue: '🔵', yellow: '🟡', red: '🔴', green: '🟢', purple: '🟣' }
 const RESOURCE_ICON = { clay: '🧱', stone: '🪨', ore: '⛏️', wood: '🪵', glass: '🔷', loom: '🧵', papyrus: '📜' }
 const RESOURCE_NAME = { clay: 'Argilla', stone: 'Pietra', ore: 'Minerale', wood: 'Legno', glass: 'Vetro', loom: 'Tessuto', papyrus: 'Papiro' }
-const SCIENCE_ICON = { compass: '🧭', gear: '⚙️', tablet: '📜' }
+const SCIENCE_ICON = { compass: '🧭', gear: '⚙️', tablet: '📝' }
 const COLOR_NAME = { brown: 'Marrone', grey: 'Grigia', blue: 'Blu', yellow: 'Gialla', red: 'Rossa', green: 'Verde', purple: 'Viola' }
 
 function wonderStartResourceLabel(wonderId) {
@@ -30,20 +30,65 @@ function wonderStartResourceLabel(wonderId) {
   return `${RESOURCE_ICON[r]} ${RESOURCE_NAME[r]}`
 }
 
+// Simbolo specifico per ogni "famiglia" di concatenazione (invece del
+// generico 🔗/🔓), per riconoscere a colpo d'occhio quale catena
+// collega quali carte — come le icone sulle carte fisiche.
+const CHAIN_SYMBOL = {
+  pozzo: '🗿',
+  statua: '🗿',
+  bagni: '💧',
+  acquedotto: '💧',
+  altare: '🔥',
+  tempio: '🔥',
+  pantheon: '🔥',
+  teatro: '🎭',
+  giardini: '🎭',
+  mercato: '🐪',
+  caravanserraglio: '🐪',
+  'stazione-ovest': '🏺',
+  'stazione-est': '🏺',
+  foro: '🏺',
+  farmacia: '💊',
+  ambulatorio: '💊',
+  loggia: '💊',
+  opificio: '🛠️',
+  laboratorio: '🛠️',
+  osservatorio: '🛠️',
+  tribunale: '⚖️',
+  senato: '⚖️',
+  biblioteca: '📖',
+  universita: '📖',
+  scuola: '🎓',
+  accademia: '🎓',
+  caserma: '🐎',
+  scuderie: '🐎',
+  'torre-guardia': '🎯',
+  'zona-addestramento': '🎯',
+  fortificazioni: '🎯',
+  circo: '🎯',
+  mura: '🏰',
+  castra: '🏰',
+  'poligono-tiro': '🏹',
+  'opificio-assedio': '🏹'
+}
+
 // Etichetta dei simboli di concatenazione di una carta: "gratis se hai
 // già costruito X" (chainFrom) e, informativamente, "sblocca gratis Y"
 // (chainTo) — quest'ultimo non è usato dal motore per le regole (che
 // legge solo chainFrom sulla carta di destinazione) ma aiuta a vedere
-// subito cosa conviene costruire prima.
+// subito cosa conviene costruire prima. Ogni "famiglia" di catena ha
+// il proprio simbolo (vedi CHAIN_SYMBOL); se una carta non è mappata
+// (dato incompleto) si usa un fallback generico.
 function chainLabel(card) {
   const parts = []
   if (card.chainFrom?.length) {
+    const symbol = CHAIN_SYMBOL[card.id] || '🔗'
     const names = card.chainFrom.map((id) => getCardData(id)?.name || id).join(' o ')
-    parts.push(`🔗 Gratis se hai: ${names}`)
+    parts.push(`${symbol} Gratis se hai: ${names}`)
   }
   if (card.chainTo?.length) {
-    const names = card.chainTo.map((id) => getCardData(id)?.name || id).join(', ')
-    parts.push(`🔓 Sblocca gratis: ${names}`)
+    const labels = card.chainTo.map((id) => `${CHAIN_SYMBOL[id] || '🔓'} ${getCardData(id)?.name || id}`).join(', ')
+    parts.push(`Sblocca gratis: ${labels}`)
   }
   return parts
 }
@@ -91,7 +136,7 @@ function cardEffectLabel(card) {
     case 'coins_and_vp_per_wonder_stage':
       return `+${e.value.coinsEach}🪙 e +${e.value.vpEach}🏆 per ogni stadio della tua Meraviglia`
     case 'science_choice':
-      return `1 simbolo scientifico a scelta 🧭⚙️📜`
+      return `1 simbolo scientifico a scelta 🧭⚙️📝`
     default:
       return ''
   }
@@ -109,7 +154,7 @@ function guildEffectLabel(card) {
     case 'per_brown_grey_purple_self':
       return `+${card.scoringValue.vpEach}🏆 per ogni carta Marrone/Grigia/Viola nella tua città`
     case 'science_choice':
-      return `1 simbolo scientifico a scelta 🧭⚙️📜`
+      return `1 simbolo scientifico a scelta 🧭⚙️📝`
     default:
       return ''
   }
@@ -133,7 +178,7 @@ function wonderStageLabel(stage) {
     case 'military':
       return `+${stage.effectValue} 🛡️`
     case 'science':
-      return `${stage.effectValue} simbolo/i scientifico/i a scelta 🧭⚙️📜`
+      return `${stage.effectValue} simbolo/i scientifico/i a scelta 🧭⚙️📝`
     case 'trade_discount':
       return `Sconto commercio: ${stage.effectValue.resources.map((r) => RESOURCE_ICON[r]).join(' ')}`
     case 'build_from_hand_free':
