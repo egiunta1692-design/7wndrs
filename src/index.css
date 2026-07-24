@@ -1,0 +1,11 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: linear-gradient(160deg, #7a5233 0%, #5c3d24 55%, #46301c 100%);
+  background-attachment: fixed;
+  color: #222;
+}
