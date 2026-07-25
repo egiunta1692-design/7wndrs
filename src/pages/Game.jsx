@@ -206,6 +206,7 @@ export default function Game({ profile }) {
   const [myHandRows, setMyHandRows] = useState([]) // righe player_hands visibili (la mia + quella indirizzata a me)
   const [error, setError] = useState(null)
   const [selectedCardId, setSelectedCardId] = useState(null)
+  const [showBoard, setShowBoard] = useState(false)
   const resolvingRef = useRef(null)
   const advancingRef = useRef(false)
   const dealingRef = useRef(false)
@@ -404,8 +405,34 @@ export default function Game({ profile }) {
           resolvingRef.current = null
           return
         }
-        const updatedPublic = applyPreparedAction(prepared, myPlayer)
+
+        // IMPORTANTE: si rilegge fresco anche il proprio giocatore invece
+        // di usare "myPlayer" (stato React, che riflette l'ultimo evento
+        // realtime ricevuto e può essere leggermente indietro rispetto al
+        // vero saldo nel database in questo preciso istante). Calcolare il
+        // nuovo saldo da un valore non aggiornato è la causa più probabile
+        // di eventuali monete negative residue.
+        const { data: freshPlayer, error: freshPlayerError } = await supabase.from('players').select().eq('id', myPlayer.id).single()
+        if (freshPlayerError) console.error('[resolveTurn] errore rilettura giocatore proprio:', freshPlayerError)
+        const baselinePlayer = freshPlayer || myPlayer
+
+        const updatedPublic = applyPreparedAction(prepared, baselinePlayer)
         const isLastTurnOfAge = game.turn_number >= 6
+
+        if (updatedPublic.coins < 0) {
+          // Non dovrebbe mai succedere (canBuildCard/canBuildWonderStage
+          // controllano già il costo totale prima di permettere l'azione):
+          // se capita comunque, lo segnaliamo forte in console con tutti i
+          // dati per capire la causa esatta, e clampiamo a 0 per non
+          // mostrare un saldo impossibile in partita.
+          console.error('[resolveTurn] SALDO NEGATIVO CALCOLATO — segnalare questo log:', {
+            playerId: myPlayer.id,
+            baselineCoins: baselinePlayer.coins,
+            prepared,
+            computedCoins: updatedPublic.coins
+          })
+          updatedPublic.coins = 0
+        }
 
         // Scrittura atomica: procede solo se turn_applied non è già
         // arrivato a questo turno (protegge da doppia applicazione).
@@ -559,6 +586,163 @@ export default function Game({ profile }) {
 
   if (!game || !myPlayer) return <Loader message="Carico la partita..." />
 
+  // Estratto in funzione perché serve sia durante il turno di gioco sia
+  // nella revisione della plancia a partita conclusa (vedi schermata finale).
+  function renderPlayerPanels() {
+    return orderedPlayers.map((p) => {
+      const wonder = WONDERS[p.wonder_id]
+      const side = wonder?.sides[p.wonder_side]
+      const cardsByColor = {}
+      for (const cardId of p.built_cards || []) {
+        const card = getCardData(cardId)
+        if (!card) continue
+        ;(cardsByColor[card.color] ||= []).push(card)
+      }
+      const militaryTotal = (p.military_tokens || []).reduce((sum, t) => sum + (t.value ?? 0), 0)
+      const militaryStrength = computeMilitaryStrength(p)
+      const live = liveScoresById[p.id]
+      return (
+        <div
+          key={p.id}
+          style={{
+            border: p.id === myPlayer.id ? '2px solid #8a6a48' : '1px solid #e4ddcc',
+            borderRadius: 10,
+            padding: '8px 12px',
+            fontSize: '0.8rem',
+            background: '#fff'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6 }}>
+            <strong>
+              {p.nickname} {game.status === 'playing' ? (p.ready_this_turn ? '✅' : '⏳') : ''}
+            </strong>
+            <div title="🛡️ = Punti Vittoria militari già assegnati nei conflitti di fine Epoca passati.">
+              🪙{p.coins} · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}
+            </div>
+          </div>
+
+          {live && (
+            <div
+              title="Punteggio live: quanto varrebbe la tua città se la partita finisse ora. 'Militari' sono i Punti Vittoria dei conflitti già risolti a fine Epoca; ⚔️ è la potenza accumulata nell'Epoca in corso, che conta solo alla fine."
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                fontSize: '0.72rem',
+                color: '#5a5142',
+                background: '#f5f0e6',
+                border: '1px solid #e4ddcc',
+                borderRadius: 6,
+                padding: '3px 8px',
+                marginTop: 6
+              }}
+            >
+              <span>🛡️ Militari {live.military} (⚔️{militaryStrength})</span>
+              <span>💰 Tesoro {live.treasury}</span>
+              <span>🏛️ Meraviglia {live.wonder}</span>
+              <span>🔵 Blu {live.blue}</span>
+              <span>🟡 Gialle {live.yellow}</span>
+              <span>🟢 Verdi {live.green}</span>
+              <span>🟣 Viola {live.purple}</span>
+              <span style={{ fontWeight: 700, color: '#3d3527' }}>= {live.total} 🏆</span>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            {/* ---- Area Meraviglia: plancia + stadi ---- */}
+            <div
+              style={{
+                width: 220,
+                flexShrink: 0,
+                background: '#faf6ec',
+                border: '1px solid #e4ddcc',
+                borderRadius: 8,
+                padding: 6
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>
+                🏛️ {wonder?.name} ({p.wonder_side})
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#5a5142', marginBottom: 4 }}>{wonderStartResourceLabel(p.wonder_id)} di partenza</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {side?.stages.map((s, i) => {
+                  const built = i < p.wonder_stages_built
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        background: built ? '#e9dfc8' : '#fff',
+                        border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
+                        borderRadius: 6,
+                        padding: '2px 6px',
+                        opacity: built ? 1 : 0.65,
+                        fontWeight: built ? 700 : 400,
+                        fontSize: '0.72rem'
+                      }}
+                    >
+                      {built ? '🏛️' : '▫️'} {i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* ---- Area Città: edifici costruiti, una riga per colore ---- */}
+            <div style={{ flex: 1, minWidth: 260 }}>
+              {Object.keys(cardsByColor).length === 0 ? (
+                <div style={{ color: '#a89b86' }}>Nessun edificio costruito ancora</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
+                    .filter((color) => cardsByColor[color])
+                    .map((color) => (
+                      <div key={color} style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.68rem', color: '#a89b86', paddingTop: 4, width: 14 }}>{COLOR_LABEL[color]}</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1 }}>
+                          {cardsByColor[color].map((card) => (
+                            <div
+                              key={card.id}
+                              style={{
+                                position: 'relative',
+                                background: '#f5f0e6',
+                                border: '1px solid #e4ddcc',
+                                borderRadius: 6,
+                                padding: '3px 16px 12px 6px',
+                                minWidth: 130,
+                                maxWidth: 170
+                              }}
+                            >
+                              <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
+                                {COLOR_LABEL[color]} {card.name}
+                              </div>
+                              <div style={{ fontSize: '0.66rem', color: '#3d3527' }}>{effectLabel(card)}</div>
+                              {chainLabel(card).map((line, i) => (
+                                <div key={i} style={{ fontSize: '0.62rem', color: '#8a6a48' }}>
+                                  {line}
+                                </div>
+                              ))}
+                              {card.age && (
+                                <span
+                                  title={`Epoca ${AGE_ROMAN[card.age]}`}
+                                  style={{ position: 'absolute', right: 5, bottom: 2, fontSize: '0.6rem', fontWeight: 700, color: '#a89b86' }}
+                                >
+                                  {AGE_ROMAN[card.age]}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )
+    })
+  }
+
   // ============================================================
   // UI — Sala d'attesa
   // ============================================================
@@ -628,43 +812,54 @@ export default function Game({ profile }) {
     const scores = orderedPlayers.map((p) => p.final_score).filter(Boolean).sort((a, b) => b.total - a.total)
     return (
       <div style={page}>
-        <div style={{ ...cardWide, width: 640 }}>
-          <h1 style={title}>🏆 Partita conclusa</h1>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-            <thead>
-              <tr>
-                <th align="left">Giocatore</th>
-                <th>Mil.</th>
-                <th>Tesoro</th>
-                <th>Merav.</th>
-                <th>Blu</th>
-                <th>Gialle</th>
-                <th>Verdi</th>
-                <th>Viola</th>
-                <th>Totale</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scores.map((s) => {
-                const p = players.find((pl) => pl.id === s.playerId)
-                return (
-                  <tr key={s.playerId} style={{ borderTop: '1px solid #eee' }}>
-                    <td>{p?.nickname}</td>
-                    <td align="center">{s.military}</td>
-                    <td align="center">{s.treasury}</td>
-                    <td align="center">{s.wonder}</td>
-                    <td align="center">{s.blue}</td>
-                    <td align="center">{s.yellow}</td>
-                    <td align="center">{s.green}</td>
-                    <td align="center">{s.purple}</td>
-                    <td align="center" style={{ fontWeight: 700 }}>
-                      {s.total}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+        <div style={{ ...cardWide, width: showBoard ? 980 : 640 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <h1 style={{ ...title, margin: 0 }}>🏆 Partita conclusa</h1>
+            <button style={linkText} onClick={() => setShowBoard(!showBoard)}>
+              {showBoard ? '🏆 Torna al punteggio' : '👁️ Rivedi le plance'}
+            </button>
+          </div>
+
+          {showBoard ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '16px 0' }}>{renderPlayerPanels()}</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', marginTop: 16 }}>
+              <thead>
+                <tr>
+                  <th align="left">Giocatore</th>
+                  <th>🛡️ Mil.</th>
+                  <th>💰 Tesoro</th>
+                  <th>🏛️ Merav.</th>
+                  <th>🔵 Blu</th>
+                  <th>🟡 Gialle</th>
+                  <th>🟢 Verdi</th>
+                  <th>🟣 Viola</th>
+                  <th>🏆 Totale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scores.map((s) => {
+                  const p = players.find((pl) => pl.id === s.playerId)
+                  return (
+                    <tr key={s.playerId} style={{ borderTop: '1px solid #eee' }}>
+                      <td>{p?.nickname}</td>
+                      <td align="center">{s.military}</td>
+                      <td align="center">{s.treasury}</td>
+                      <td align="center">{s.wonder}</td>
+                      <td align="center">{s.blue}</td>
+                      <td align="center">{s.yellow}</td>
+                      <td align="center">{s.green}</td>
+                      <td align="center">{s.purple}</td>
+                      <td align="center" style={{ fontWeight: 700 }}>
+                        {s.total}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+
           <button style={{ ...secondaryButton, marginTop: 16 }} onClick={() => navigate('/')}>
             ← Torna alla lobby
           </button>
@@ -682,6 +877,7 @@ export default function Game({ profile }) {
   const myNextStage = myWonderSide?.stages[myPlayer.wonder_stages_built || 0]
   const nextWonderStageLabel = myNextStage ? `${costLabel(myNextStage.cost)} → ${wonderStageLabel(myNextStage)}` : null
 
+
   return (
     <div style={page}>
       <div style={{ ...cardWide, width: 980 }}>
@@ -695,158 +891,7 @@ export default function Game({ profile }) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '10px 0 16px' }}>
-          {orderedPlayers.map((p) => {
-            const wonder = WONDERS[p.wonder_id]
-            const side = wonder?.sides[p.wonder_side]
-            const cardsByColor = {}
-            for (const cardId of p.built_cards || []) {
-              const card = getCardData(cardId)
-              if (!card) continue
-              ;(cardsByColor[card.color] ||= []).push(card)
-            }
-            const militaryTotal = (p.military_tokens || []).reduce((sum, t) => sum + (t.value ?? 0), 0)
-            const militaryStrength = computeMilitaryStrength(p)
-            const live = liveScoresById[p.id]
-            return (
-              <div
-                key={p.id}
-                style={{
-                  border: p.id === myPlayer.id ? '2px solid #8a6a48' : '1px solid #e4ddcc',
-                  borderRadius: 10,
-                  padding: '8px 12px',
-                  fontSize: '0.8rem',
-                  background: '#fff'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6 }}>
-                  <strong>
-                    {p.nickname} {p.ready_this_turn ? '✅' : '⏳'}
-                  </strong>
-                  <div title="🛡️ = Punti Vittoria militari già assegnati nei conflitti di fine Epoca passati.">
-                    🪙{p.coins} · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}
-                  </div>
-                </div>
-
-                {live && (
-                  <div
-                    title="Punteggio live: quanto varrebbe la tua città se la partita finisse ora. 'Militari' sono i Punti Vittoria dei conflitti già risolti a fine Epoca; ⚔️ è la potenza accumulata nell'Epoca in corso, che conta solo alla fine."
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 8,
-                      fontSize: '0.72rem',
-                      color: '#5a5142',
-                      background: '#f5f0e6',
-                      border: '1px solid #e4ddcc',
-                      borderRadius: 6,
-                      padding: '3px 8px',
-                      marginTop: 6
-                    }}
-                  >
-                    <span>🛡️ Militari {live.military} (⚔️{militaryStrength})</span>
-                    <span>💰 Tesoro {live.treasury}</span>
-                    <span>🏛️ Meraviglia {live.wonder}</span>
-                    <span>🔵 Blu {live.blue}</span>
-                    <span>🟡 Gialle {live.yellow}</span>
-                    <span>🟢 Verdi {live.green}</span>
-                    <span>🟣 Viola {live.purple}</span>
-                    <span style={{ fontWeight: 700, color: '#3d3527' }}>= {live.total} 🏆</span>
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                  {/* ---- Area Meraviglia: plancia + stadi ---- */}
-                  <div
-                    style={{
-                      width: 220,
-                      flexShrink: 0,
-                      background: '#faf6ec',
-                      border: '1px solid #e4ddcc',
-                      borderRadius: 8,
-                      padding: 6
-                    }}
-                  >
-                    <div style={{ fontWeight: 700 }}>
-                      🏛️ {wonder?.name} ({p.wonder_side})
-                    </div>
-                    <div style={{ fontSize: '0.72rem', color: '#5a5142', marginBottom: 4 }}>{wonderStartResourceLabel(p.wonder_id)} di partenza</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      {side?.stages.map((s, i) => {
-                        const built = i < p.wonder_stages_built
-                        return (
-                          <div
-                            key={i}
-                            style={{
-                              background: built ? '#e9dfc8' : '#fff',
-                              border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
-                              borderRadius: 6,
-                              padding: '2px 6px',
-                              opacity: built ? 1 : 0.65,
-                              fontWeight: built ? 700 : 400,
-                              fontSize: '0.72rem'
-                            }}
-                          >
-                            {built ? '🏛️' : '▫️'} {i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* ---- Area Città: edifici costruiti, una riga per colore ---- */}
-                  <div style={{ flex: 1, minWidth: 260 }}>
-                    {Object.keys(cardsByColor).length === 0 ? (
-                      <div style={{ color: '#a89b86' }}>Nessun edificio costruito ancora</div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                        {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
-                          .filter((color) => cardsByColor[color])
-                          .map((color) => (
-                            <div key={color} style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: '0.68rem', color: '#a89b86', paddingTop: 4, width: 14 }}>{COLOR_LABEL[color]}</span>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1 }}>
-                                {cardsByColor[color].map((card) => (
-                                  <div
-                                    key={card.id}
-                                    style={{
-                                      position: 'relative',
-                                      background: '#f5f0e6',
-                                      border: '1px solid #e4ddcc',
-                                      borderRadius: 6,
-                                      padding: '3px 16px 12px 6px',
-                                      minWidth: 130,
-                                      maxWidth: 170
-                                    }}
-                                  >
-                                    <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
-                                      {COLOR_LABEL[color]} {card.name}
-                                    </div>
-                                    <div style={{ fontSize: '0.66rem', color: '#3d3527' }}>{effectLabel(card)}</div>
-                                    {chainLabel(card).map((line, i) => (
-                                      <div key={i} style={{ fontSize: '0.62rem', color: '#8a6a48' }}>
-                                        {line}
-                                      </div>
-                                    ))}
-                                    {card.age && (
-                                      <span
-                                        title={`Epoca ${AGE_ROMAN[card.age]}`}
-                                        style={{ position: 'absolute', right: 5, bottom: 2, fontSize: '0.6rem', fontWeight: 700, color: '#a89b86' }}
-                                      >
-                                        {AGE_ROMAN[card.age]}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )
-          })}
+          {renderPlayerPanels()}
         </div>
 
         {iAmReady ? (
