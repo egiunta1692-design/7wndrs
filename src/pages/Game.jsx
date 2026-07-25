@@ -13,6 +13,7 @@ import {
   applyPreparedAction,
   resolveMilitaryConflict,
   computeMilitaryStrength,
+  computeProduction,
   scoreGame,
   getCardData
 } from '../game-engine'
@@ -112,15 +113,15 @@ function cardEffectLabel(card) {
   if (!e) return ''
   switch (e.kind) {
     case 'produce_fixed':
-      return `Produce ${e.amount || 1} ${RESOURCE_ICON[e.value] || e.value}`
+      return `+${e.amount || 1}${RESOURCE_ICON[e.value] || e.value}`
     case 'produce_choice':
-      return `Produce 1 a scelta: ${e.value.map((r) => RESOURCE_ICON[r]).join(' ')}`
+      return `+1 a scelta: ${e.value.map((r) => RESOURCE_ICON[r]).join(' ')}`
     case 'vp':
-      return `${e.value} 🏆 Punti Vittoria`
+      return `+${e.value}🏆`
     case 'coins_on_build':
-      return `+${e.value}🪙 subito`
+      return `+${e.value}🪙`
     case 'shields':
-      return `+${e.value} 🛡️ potenza militare`
+      return `+${e.value}⚔️`
     case 'science':
       return `Simbolo scientifico: ${SCIENCE_ICON[e.value] || e.value}`
     case 'trade_discount': {
@@ -170,15 +171,15 @@ function effectLabel(card) {
 function wonderStageLabel(stage) {
   switch (stage.effectKind) {
     case 'vp':
-      return `${stage.effectValue} 🏆`
+      return `+${stage.effectValue}🏆`
     case 'coins':
       return `+${stage.effectValue}🪙`
     case 'vp_and_coins':
-      return `${stage.effectValue.vp}🏆 +${stage.effectValue.coins}🪙`
+      return `+${stage.effectValue.vp}🏆 +${stage.effectValue.coins}🪙`
     case 'produce_choice':
-      return `Produce a scelta: ${stage.effectValue.map((r) => RESOURCE_ICON[r]).join(' ')}`
+      return `+1 a scelta: ${stage.effectValue.map((r) => RESOURCE_ICON[r]).join(' ')}`
     case 'military':
-      return `+${stage.effectValue} 🛡️`
+      return `+${stage.effectValue}⚔️`
     case 'science':
       return `${stage.effectValue} simbolo/i scientifico/i a scelta 🧭⚙️📝`
     case 'trade_discount':
@@ -634,6 +635,7 @@ export default function Game({ profile }) {
       }
       const militaryTotal = (p.military_tokens || []).reduce((sum, t) => sum + (t.value ?? 0), 0)
       const militaryStrength = computeMilitaryStrength(p)
+      const production = computeProduction(p)
       const live = liveScoresById[p.id]
       return (
         <div
@@ -681,6 +683,32 @@ export default function Game({ profile }) {
               <span style={{ fontWeight: 700, color: '#3d3527' }}>= {live.total} 🏆</span>
             </div>
           )}
+
+          <div
+            title="Quante risorse produce questa città a ogni turno (risorsa di partenza + carte Marroni/Grigie + effetti Meraviglia). Non include le carte Gialle a scelta, utilizzabili solo per costruire, non per vendere."
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              fontSize: '0.72rem',
+              color: '#5a5142',
+              marginTop: 6
+            }}
+          >
+            <span>📦 Produzione/turno:</span>
+            {Object.entries(production.fixed)
+              .filter(([, n]) => n > 0)
+              .map(([r, n]) => (
+                <span key={r}>
+                  +{n}
+                  {RESOURCE_ICON[r]}
+                </span>
+              ))}
+            {production.choiceGenerators.map((gen, i) => (
+              <span key={i}>+1 a scelta: {gen.map((r) => RESOURCE_ICON[r]).join('/')}</span>
+            ))}
+            {Object.values(production.fixed).every((n) => n === 0) && production.choiceGenerators.length === 0 && <span>—</span>}
+          </div>
 
           <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             {/* ---- Area Meraviglia: plancia + stadi ---- */}
