@@ -719,7 +719,7 @@ export default function Game({ profile }) {
               <span>🟡 Gialle {live.yellow}</span>
               <span>🟢 Verdi {live.green}</span>
               <span>🟣 Viola {live.purple}</span>
-              <span style={{ fontWeight: 700, color: '#3d3527' }}>= {live.total} 🏆</span>
+              <span style={{ fontWeight: 700, color: '#3d3527', marginLeft: 'auto' }}>{live.total} 🏆</span>
             </div>
           )}
 
