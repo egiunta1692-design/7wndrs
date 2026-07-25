@@ -14,6 +14,7 @@ import {
   resolveMilitaryConflict,
   computeMilitaryStrength,
   computeProduction,
+  computeTradeDiscounts,
   scoreGame,
   getCardData
 } from '../game-engine'
@@ -23,7 +24,7 @@ import { page, cardWide, title, primaryButton, secondaryButton, pillButton, erro
 const COLOR_LABEL = { brown: '🟤', grey: '⚪', blue: '🔵', yellow: '🟡', red: '🔴', green: '🟢', purple: '🟣' }
 const RESOURCE_ICON = { clay: '🧱', stone: '🪨', ore: '⛏️', wood: '🪵', glass: '🔷', loom: '🧵', papyrus: '📜' }
 const RESOURCE_NAME = { clay: 'Argilla', stone: 'Pietra', ore: 'Minerale', wood: 'Legno', glass: 'Vetro', loom: 'Tessuto', papyrus: 'Papiro' }
-const AGE_ROMAN = { 1: 'I', 2: 'II', 3: 'III' }
+const AGE_ROMAN = { 1: 'Ⅰ', 2: 'Ⅱ', 3: 'Ⅲ' }
 const SCIENCE_ICON = { compass: '🧭', gear: '⚙️', tablet: '📝' }
 const COLOR_NAME = { brown: 'Marrone', grey: 'Grigia', blue: 'Blu', yellow: 'Gialla', red: 'Rossa', green: 'Verde', purple: 'Viola' }
 
@@ -94,6 +95,32 @@ function chainLabel(card) {
     parts.push(`Sblocca gratis: ${labels}`)
   }
   return parts
+}
+
+// Riassume gli sconti commercio attivi di un giocatore (carte Gialle
+// tipo Mercato/Stazioni + stadi Meraviglia) in forma compatta per la
+// vista collassata: ◄ = dal vicino sinistro, ► = dal destro, ↔ = da
+// entrambi se le risorse scontate coincidono.
+function tradeDiscountSummary(player) {
+  const d = computeTradeDiscounts(player)
+  const leftIcons = [...d.left].map((r) => RESOURCE_ICON[r]).join('')
+  const rightIcons = [...d.right].map((r) => RESOURCE_ICON[r]).join('')
+  if (!leftIcons && !rightIcons) return null
+  if (leftIcons && rightIcons && leftIcons === rightIcons) return `↔️${leftIcons}`
+  const parts = []
+  if (leftIcons) parts.push(`◄${leftIcons}`)
+  if (rightIcons) parts.push(`►${rightIcons}`)
+  return parts.join(' ')
+}
+
+function formatElapsed(ms) {
+  if (ms == null || ms < 0) return '—'
+  const totalSeconds = Math.floor(ms / 1000)
+  const h = Math.floor(totalSeconds / 3600)
+  const m = Math.floor((totalSeconds % 3600) / 60)
+  const s = totalSeconds % 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
 }
 
 function costLabel(cost = {}) {
@@ -209,6 +236,16 @@ export default function Game({ profile }) {
   const [selectedCardId, setSelectedCardId] = useState(null)
   const [buyPreference, setBuyPreference] = useState(null)
   const [showBoard, setShowBoard] = useState(false)
+  const [expandedPlayerId, setExpandedPlayerId] = useState(null)
+  const [nowTick, setNowTick] = useState(Date.now())
+
+  // Timer live: si aggiorna ogni secondo mentre la partita è in corso
+  // (stesso principio del cronometro di Harmonies), calcolato dalla
+  // colonna games.started_at — nessuna scrittura, solo lettura locale.
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [])
   const resolvingRef = useRef(null)
   const advancingRef = useRef(false)
   const dealingRef = useRef(false)
@@ -636,7 +673,9 @@ export default function Game({ profile }) {
       const militaryTotal = (p.military_tokens || []).reduce((sum, t) => sum + (t.value ?? 0), 0)
       const militaryStrength = computeMilitaryStrength(p)
       const production = computeProduction(p)
+      const trade = tradeDiscountSummary(p)
       const live = liveScoresById[p.id]
+      const isExpanded = expandedPlayerId ? expandedPlayerId === p.id : p.id === myPlayer.id
       return (
         <div
           key={p.id}
@@ -648,13 +687,13 @@ export default function Game({ profile }) {
             background: '#fff'
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6 }}>
+          <div
+            onClick={() => setExpandedPlayerId(isExpanded ? 'none' : p.id)}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6, cursor: 'pointer' }}
+          >
             <strong>
-              {p.nickname} {game.status === 'playing' ? (p.ready_this_turn ? '✅' : '⏳') : ''}
+              {isExpanded ? '▾' : '▸'} {p.nickname} {game.status === 'playing' ? (p.ready_this_turn ? '✅' : '⏳') : ''}
             </strong>
-            <div title="🛡️ = Punti Vittoria militari già assegnati nei conflitti di fine Epoca passati.">
-              🪙{p.coins} · 🛡️{militaryTotal > 0 ? `+${militaryTotal}` : militaryTotal}
-            </div>
           </div>
 
           {live && (
@@ -685,7 +724,7 @@ export default function Game({ profile }) {
           )}
 
           <div
-            title="Quante risorse produce questa città a ogni turno (risorsa di partenza + carte Marroni/Grigie + effetti Meraviglia). Non include le carte Gialle a scelta, utilizzabili solo per costruire, non per vendere."
+            title="Numero di carte per colore (utile per le Gilde che contano le carte dei vicini) · Produzione risorse per turno · Sconti commercio attivi (◄ vicino sinistro, ► destro, ↔ entrambi)"
             style={{
               display: 'flex',
               flexWrap: 'wrap',
@@ -695,7 +734,13 @@ export default function Game({ profile }) {
               marginTop: 6
             }}
           >
-            <span>📦 Produzione/turno:</span>
+            {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple'].map((color) => (
+              <span key={color}>
+                {COLOR_LABEL[color]}
+                {(cardsByColor[color] || []).length}
+              </span>
+            ))}
+            <span>·</span>
             {Object.entries(production.fixed)
               .filter(([, n]) => n > 0)
               .map(([r, n]) => (
@@ -707,99 +752,101 @@ export default function Game({ profile }) {
             {production.choiceGenerators.map((gen, i) => (
               <span key={i}>+1 a scelta: {gen.map((r) => RESOURCE_ICON[r]).join('/')}</span>
             ))}
-            {Object.values(production.fixed).every((n) => n === 0) && production.choiceGenerators.length === 0 && <span>—</span>}
+            {trade && <span>🔀 {trade}</span>}
           </div>
 
-          <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            {/* ---- Area Meraviglia: plancia + stadi ---- */}
-            <div
-              style={{
-                width: 220,
-                flexShrink: 0,
-                background: '#faf6ec',
-                border: '1px solid #e4ddcc',
-                borderRadius: 8,
-                padding: 6
-              }}
-            >
-              <div style={{ fontWeight: 700 }}>
-                🏛️ {wonder?.name} ({p.wonder_side})
-              </div>
-              <div style={{ fontSize: '0.72rem', color: '#5a5142', marginBottom: 4 }}>{wonderStartResourceLabel(p.wonder_id)} di partenza</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {side?.stages.map((s, i) => {
-                  const built = i < p.wonder_stages_built
-                  return (
-                    <div
-                      key={i}
-                      style={{
-                        background: built ? '#e9dfc8' : '#fff',
-                        border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
-                        borderRadius: 6,
-                        padding: '2px 6px',
-                        opacity: built ? 1 : 0.65,
-                        fontWeight: built ? 700 : 400,
-                        fontSize: '0.72rem'
-                      }}
-                    >
-                      {built ? '🏛️' : '▫️'} {i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* ---- Area Città: edifici costruiti, una riga per colore ---- */}
-            <div style={{ flex: 1, minWidth: 260 }}>
-              {Object.keys(cardsByColor).length === 0 ? (
-                <div style={{ color: '#a89b86' }}>Nessun edificio costruito ancora</div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
-                    .filter((color) => cardsByColor[color])
-                    .map((color) => (
-                      <div key={color} style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '0.68rem', color: '#a89b86', paddingTop: 4, width: 14 }}>{COLOR_LABEL[color]}</span>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1 }}>
-                          {cardsByColor[color].map((card) => (
-                            <div
-                              key={card.id}
-                              style={{
-                                position: 'relative',
-                                background: '#f5f0e6',
-                                border: '1px solid #e4ddcc',
-                                borderRadius: 6,
-                                padding: '3px 16px 12px 6px',
-                                minWidth: 130,
-                                maxWidth: 170
-                              }}
-                            >
-                              <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
-                                {COLOR_LABEL[color]} {card.name}
-                              </div>
-                              <div style={{ fontSize: '0.66rem', color: '#3d3527' }}>{effectLabel(card)}</div>
-                              {chainLabel(card).map((line, i) => (
-                                <div key={i} style={{ fontSize: '0.62rem', color: '#8a6a48' }}>
-                                  {line}
-                                </div>
-                              ))}
-                              {card.age && (
-                                <span
-                                  title={`Epoca ${AGE_ROMAN[card.age]}`}
-                                  style={{ position: 'absolute', right: 5, bottom: 2, fontSize: '0.6rem', fontWeight: 700, color: '#a89b86' }}
-                                >
-                                  {AGE_ROMAN[card.age]}
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+          {isExpanded && (
+            <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              {/* ---- Area Meraviglia: plancia + stadi ---- */}
+              <div
+                style={{
+                  width: 220,
+                  flexShrink: 0,
+                  background: '#faf6ec',
+                  border: '1px solid #e4ddcc',
+                  borderRadius: 8,
+                  padding: 6
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>
+                  🏛️ {wonder?.name} ({p.wonder_side})
                 </div>
-              )}
+                <div style={{ fontSize: '0.72rem', color: '#5a5142', marginBottom: 4 }}>{wonderStartResourceLabel(p.wonder_id)} di partenza</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {side?.stages.map((s, i) => {
+                    const built = i < p.wonder_stages_built
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          background: built ? '#e9dfc8' : '#fff',
+                          border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
+                          borderRadius: 6,
+                          padding: '2px 6px',
+                          opacity: built ? 1 : 0.65,
+                          fontWeight: built ? 700 : 400,
+                          fontSize: '0.72rem'
+                        }}
+                      >
+                        {built ? '🏛️' : '▫️'} {i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* ---- Area Città: edifici costruiti, una riga per colore ---- */}
+              <div style={{ flex: 1, minWidth: 260 }}>
+                {Object.keys(cardsByColor).length === 0 ? (
+                  <div style={{ color: '#a89b86' }}>Nessun edificio costruito ancora</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
+                      .filter((color) => cardsByColor[color])
+                      .map((color) => (
+                        <div key={color} style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.68rem', color: '#a89b86', paddingTop: 4, width: 14 }}>{COLOR_LABEL[color]}</span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1 }}>
+                            {cardsByColor[color].map((card) => (
+                              <div
+                                key={card.id}
+                                style={{
+                                  position: 'relative',
+                                  background: '#f5f0e6',
+                                  border: '1px solid #e4ddcc',
+                                  borderRadius: 6,
+                                  padding: '3px 16px 12px 6px',
+                                  minWidth: 130,
+                                  maxWidth: 170
+                                }}
+                              >
+                                <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
+                                  {COLOR_LABEL[color]} {card.name}
+                                </div>
+                                <div style={{ fontSize: '0.66rem', color: '#3d3527' }}>{effectLabel(card)}</div>
+                                {chainLabel(card).map((line, i) => (
+                                  <div key={i} style={{ fontSize: '0.62rem', color: '#8a6a48' }}>
+                                    {line}
+                                  </div>
+                                ))}
+                                {card.age && (
+                                  <span
+                                    title={`Epoca ${AGE_ROMAN[card.age]}`}
+                                    style={{ position: 'absolute', right: 5, bottom: 2, fontSize: '0.6rem', fontWeight: 700, color: '#a89b86' }}
+                                  >
+                                    {AGE_ROMAN[card.age]}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )
     })
@@ -877,9 +924,16 @@ export default function Game({ profile }) {
         <div style={{ ...cardWide, width: showBoard ? 980 : 640 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <h1 style={{ ...title, margin: 0 }}>🏆 Partita conclusa</h1>
-            <button style={linkText} onClick={() => setShowBoard(!showBoard)}>
-              {showBoard ? '🏆 Torna al punteggio' : '👁️ Rivedi le plance'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+              {game.finished_at && game.started_at && (
+                <span style={{ fontSize: '0.85rem', color: '#5a5142' }} title="Durata totale della partita">
+                  ⏱️ {formatElapsed(new Date(game.finished_at).getTime() - new Date(game.started_at).getTime())}
+                </span>
+              )}
+              <button style={linkText} onClick={() => setShowBoard(!showBoard)}>
+                {showBoard ? '🏆 Torna al punteggio' : '👁️ Rivedi le plance'}
+              </button>
+            </div>
           </div>
 
           {showBoard ? (
@@ -945,11 +999,16 @@ export default function Game({ profile }) {
       <div style={{ ...cardWide, width: 980 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <h1 style={{ ...title, margin: 0 }}>
-            Epoca {game.age} · Turno {game.turn_number}/6
+            Epoca {AGE_ROMAN[game.age]} · Turno {game.turn_number}/6
           </h1>
-          <button onClick={() => navigate('/')} style={linkText}>
-            ← Lobby
-          </button>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+            <span style={{ fontSize: '0.85rem', color: '#5a5142' }} title="Tempo trascorso dall'avvio della partita">
+              ⏱️ {formatElapsed(nowTick - new Date(game.started_at).getTime())}
+            </span>
+            <button onClick={() => navigate('/')} style={linkText}>
+              ← Lobby
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '10px 0 16px' }}>

@@ -5,6 +5,8 @@ import { joinGame } from '../lib/joinGame'
 import Loader from '../components/Loader'
 import { page, cardWide, title, inputStyle, primaryButton, secondaryButton, errorText, linkText } from '../styles/theme'
 
+const AGE_ROMAN = { 1: 'Ⅰ', 2: 'Ⅱ', 3: 'Ⅲ' }
+
 function randomRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
@@ -114,7 +116,7 @@ export default function Lobby({ profile, onSignOut }) {
         <strong>{g.room_code}</strong>
       </span>
       <span style={{ fontSize: '0.8rem', color: '#5a5142' }}>
-        {g.status === 'waiting' ? '⏳ in attesa' : g.status === 'finished' ? '🏆 conclusa' : `▶️ Epoca ${g.age} · turno ${g.turn_number}`}
+        {g.status === 'waiting' ? '⏳ in attesa' : g.status === 'finished' ? '🏆 conclusa' : `▶️ Epoca ${AGE_ROMAN[g.age]} · turno ${g.turn_number}`}
       </span>
     </div>
   )
