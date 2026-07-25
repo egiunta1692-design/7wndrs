@@ -206,6 +206,7 @@ export default function Game({ profile }) {
   const [myHandRows, setMyHandRows] = useState([]) // righe player_hands visibili (la mia + quella indirizzata a me)
   const [error, setError] = useState(null)
   const [selectedCardId, setSelectedCardId] = useState(null)
+  const [buyPreference, setBuyPreference] = useState(null)
   const [showBoard, setShowBoard] = useState(false)
   const resolvingRef = useRef(null)
   const advancingRef = useRef(false)
@@ -344,14 +345,27 @@ export default function Game({ profile }) {
   // guardando lo stato attuale dei vicini, cosi' l'applicazione
   // successiva non dipende piu' da loro (vedi prepareAction).
   // ============================================================
-  async function chooseAction(cardId, action) {
+  async function chooseAction(cardId, action, preference = null) {
     setError(null)
     try {
-      const prepared = prepareAction(action, cardId, myPlayer, leftNeighbor, rightNeighbor)
+      const prepared = prepareAction(action, cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
       const remainingHand = (myHand.hand || []).filter((id) => id !== cardId)
       const isLastTurnOfAge = game.turn_number >= 6
 
-      const update = { pending_action: prepared }
+      // Traduce il piano d'acquisto (chi/quanto) in importi dovuti ai
+      // vicini reali, indirizzati alla loro user_id: ognuno di loro se
+      // li accrediterà da solo durante la risoluzione del proprio turno
+      // (vedi sotto) — nessun client scrive mai il saldo di un altro.
+      const paymentsOut = {}
+      for (const purchase of prepared.purchases || []) {
+        const neighbor = purchase.neighbor === 'left' ? leftNeighbor : rightNeighbor
+        if (!neighbor) continue
+        const key = neighbor.user_id
+        if (!paymentsOut[key]) paymentsOut[key] = { amount: 0, turn: game.turn_number }
+        paymentsOut[key].amount += purchase.unitCost
+      }
+
+      const update = { pending_action: prepared, payments_out: paymentsOut }
       if (!isLastTurnOfAge) {
         const recipientSeat = passRecipientSeat(game.age, mySeat, numPlayers)
         const recipient = seatToPlayer[recipientSeat]
@@ -364,6 +378,7 @@ export default function Game({ profile }) {
       await supabase.from('player_hands').update(update).eq('id', myHand.id)
       await supabase.from('players').update({ ready_this_turn: true }).eq('id', myPlayer.id)
       setSelectedCardId(null)
+      setBuyPreference(null)
     } catch (err) {
       setError(err.message)
     }
@@ -418,6 +433,25 @@ export default function Game({ profile }) {
 
         const updatedPublic = applyPreparedAction(prepared, baselinePlayer)
         const isLastTurnOfAge = game.turn_number >= 6
+
+        // Incassa eventuali pagamenti che i vicini ci devono per risorse
+        // comprate DA NOI questo turno (vedi chooseAction: chi acquista
+        // indirizza l'importo qui, leggibile grazie alla policy RLS
+        // dedicata). Si accredita solo se il pagamento è per QUESTO
+        // turno — evita di incassare due volte lo stesso importo se il
+        // vicino non ha ancora sovrascritto payments_out con una nuova
+        // scelta (persiste finché non fa un nuovo acquisto).
+        const { data: creditRows, error: creditError } = await supabase
+          .from('player_hands')
+          .select('user_id, payments_out')
+          .eq('game_id', gameId)
+        if (creditError) console.error('[resolveTurn] errore lettura pagamenti dovuti:', creditError)
+        let owedToMe = 0
+        for (const row of creditRows || []) {
+          const entry = row.payments_out?.[myUserId]
+          if (entry && entry.turn === game.turn_number) owedToMe += entry.amount
+        }
+        updatedPublic.coins += owedToMe
 
         if (updatedPublic.coins < 0) {
           // Non dovrebbe mai succedere (canBuildCard/canBuildWonderStage
@@ -907,7 +941,10 @@ export default function Game({ profile }) {
                 return (
                   <div
                     key={cardId}
-                    onClick={() => setSelectedCardId(cardId)}
+                    onClick={() => {
+                      setSelectedCardId(cardId)
+                      setBuyPreference(null)
+                    }}
                     style={{
                       position: 'relative',
                       border: selected ? '2px solid #8a6a48' : '1px solid #e4ddcc',
@@ -945,10 +982,20 @@ export default function Game({ profile }) {
                     )}
                     {selected && (
                       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <button style={pillButton} onClick={() => chooseAction(cardId, 'build')}>
+                        {Object.keys(card.cost || {}).some((k) => k !== 'coins') && (
+                          <div style={{ fontSize: '0.68rem', color: '#5a5142' }}>
+                            Se possibile compra da:{' '}
+                            <select value={buyPreference || ''} onChange={(e) => setBuyPreference(e.target.value || null)} style={{ fontSize: '0.68rem' }}>
+                              <option value="">indifferente</option>
+                              <option value="left">vicino sinistro</option>
+                              <option value="right">vicino destro</option>
+                            </select>
+                          </div>
+                        )}
+                        <button style={pillButton} onClick={() => chooseAction(cardId, 'build', buyPreference)}>
                           🏗️ Costruisci edificio
                         </button>
-                        <button style={pillButton} onClick={() => chooseAction(cardId, 'wonder')} title={nextWonderStageLabel}>
+                        <button style={pillButton} onClick={() => chooseAction(cardId, 'wonder', buyPreference)} title={nextWonderStageLabel}>
                           🏛️ Stadio Meraviglia{nextWonderStageLabel ? ` (${nextWonderStageLabel})` : ''}
                         </button>
                         <button style={pillButton} onClick={() => chooseAction(cardId, 'discard')}>

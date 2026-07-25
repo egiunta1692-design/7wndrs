@@ -115,8 +115,17 @@ export function computeTradeDiscounts(player) {
 // ------------------------------------------------------------
 // cost: { clay: 1, stone: 2, ... } (solo risorse, le monete si
 // verificano a parte con player.coins).
-// Restituisce { payable: true, coinCost: n } oppure { payable: false }.
-export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor) {
+// preference: 'left' | 'right' | null — se entrambi i vicini possono
+// vendere la stessa risorsa allo stesso prezzo, il regolamento lascia
+// la scelta al giocatore (pag. 7: "si è liberi di acquistare da
+// entrambi... a prescindere"); questo parametro permette di indicare
+// quale preferire nei casi ambigui. Se null, decide l'algoritmo (non
+// interattivo, usato per i controlli di fattibilità dove non importa).
+// Restituisce { payable, coinCost, purchases } dove purchases è la
+// lista di { neighbor: 'left'|'right', resource, unitCost } — serve a
+// sapere ESATTAMENTE quanto pagare a ciascun vicino (vedi Game.jsx,
+// che poi accredita il vicino venditore).
+export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor, preference = null) {
   const { fixed, choiceGenerators } = computeProduction(player)
   const discounts = computeTradeDiscounts(player)
   const leftPool = leftNeighbor ? computePurchasablePool(leftNeighbor) : { fixed: {}, choiceGenerators: [] }
@@ -130,7 +139,7 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor) {
     const toCover = Math.max(0, amount - owned)
     for (let i = 0; i < toCover; i++) remaining.push(resource)
   }
-  if (remaining.length === 0) return { payable: true, coinCost: 0 }
+  if (remaining.length === 0) return { payable: true, coinCost: 0, purchases: [] }
 
   // Pool acquistabile "espanso" in unità disponibili per risorsa,
   // ricordando se derivano da un generatore a scelta (non vincolante:
@@ -141,11 +150,6 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor) {
     const avail = {}
     for (const [r, n] of Object.entries(pool.fixed)) avail[r] = (avail[r] || 0) + n
     for (const gen of pool.choiceGenerators) {
-      // Un generatore a scelta del vicino può coprire UNA unità di UNA
-      // qualsiasi delle risorse che offre: lo trattiamo aggiungendo 1
-      // "credito" condiviso a ciascuna risorsa del set, ma con un tetto
-      // globale gestito a parte nel backtracking (semplificazione:
-      // sufficientemente accurata per le dimensioni tipiche del gioco).
       for (const r of gen) avail[r] = (avail[r] || 0) + 1
     }
     return avail
@@ -154,6 +158,7 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor) {
   const rightAvail = expandPool(rightPool)
 
   let bestCoinCost = null
+  let bestPurchases = null
 
   function coinCostFor(neighborKey, resource) {
     const discounted = discounts[neighborKey].has(resource)
@@ -161,12 +166,15 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor) {
   }
 
   // Backtracking: per ogni unità rimanente prova, in ordine di
-  // preferenza, generatore proprio a scelta libero, poi vicino più
-  // economico, poi l'altro vicino.
-  function backtrack(index, usedGenerators, leftLeft, rightLeft, coinsSoFar) {
+  // preferenza, generatore proprio a scelta libero, poi il vicino
+  // preferito (se indicato e più economico o pari), poi l'altro.
+  function backtrack(index, usedGenerators, leftLeft, rightLeft, coinsSoFar, purchasesSoFar) {
     if (bestCoinCost !== null && coinsSoFar >= bestCoinCost) return // pruning
     if (index === remaining.length) {
-      if (bestCoinCost === null || coinsSoFar < bestCoinCost) bestCoinCost = coinsSoFar
+      if (bestCoinCost === null || coinsSoFar < bestCoinCost) {
+        bestCoinCost = coinsSoFar
+        bestPurchases = [...purchasesSoFar]
+      }
       return
     }
     const resource = remaining[index]
@@ -176,30 +184,48 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor) {
       if (usedGenerators.has(g)) continue
       if (choiceGenerators[g].includes(resource)) {
         usedGenerators.add(g)
-        backtrack(index + 1, usedGenerators, leftLeft, rightLeft, coinsSoFar)
+        backtrack(index + 1, usedGenerators, leftLeft, rightLeft, coinsSoFar, purchasesSoFar)
         usedGenerators.delete(g)
       }
     }
 
-    // 2) acquisto da uno dei due vicini (prova entrambi gli ordini)
+    // 2) acquisto da uno dei due vicini — se una preferenza è indicata
+    // ed entrambi possono vendere, la esploriamo per prima cosicché a
+    // parità di costo totale vinca lei (vedi confronto "<" sopra: la
+    // prima soluzione trovata a costo minimo è quella che resta).
     const leftCost = coinCostFor('left', resource)
     const rightCost = coinCostFor('right', resource)
-    if ((leftLeft[resource] || 0) > 0) {
-      leftLeft[resource]--
-      backtrack(index + 1, usedGenerators, leftLeft, rightLeft, coinsSoFar + leftCost)
-      leftLeft[resource]++
+    const tryLeft = () => {
+      if ((leftLeft[resource] || 0) > 0) {
+        leftLeft[resource]--
+        purchasesSoFar.push({ neighbor: 'left', resource, unitCost: leftCost })
+        backtrack(index + 1, usedGenerators, leftLeft, rightLeft, coinsSoFar + leftCost, purchasesSoFar)
+        purchasesSoFar.pop()
+        leftLeft[resource]++
+      }
     }
-    if ((rightLeft[resource] || 0) > 0) {
-      rightLeft[resource]--
-      backtrack(index + 1, usedGenerators, leftLeft, rightLeft, coinsSoFar + rightCost)
-      rightLeft[resource]++
+    const tryRight = () => {
+      if ((rightLeft[resource] || 0) > 0) {
+        rightLeft[resource]--
+        purchasesSoFar.push({ neighbor: 'right', resource, unitCost: rightCost })
+        backtrack(index + 1, usedGenerators, leftLeft, rightLeft, coinsSoFar + rightCost, purchasesSoFar)
+        purchasesSoFar.pop()
+        rightLeft[resource]++
+      }
+    }
+    if (preference === 'right') {
+      tryRight()
+      tryLeft()
+    } else {
+      tryLeft()
+      tryRight()
     }
   }
 
-  backtrack(0, new Set(), { ...leftAvail }, { ...rightAvail }, 0)
+  backtrack(0, new Set(), { ...leftAvail }, { ...rightAvail }, 0, [])
 
   if (bestCoinCost === null) return { payable: false }
-  return { payable: true, coinCost: bestCoinCost }
+  return { payable: true, coinCost: bestCoinCost, purchases: bestPurchases }
 }
 
 // ------------------------------------------------------------
@@ -215,11 +241,11 @@ export function hasFreeChain(card, player) {
 // ------------------------------------------------------------
 // PUÒ COSTRUIRE L'EDIFICIO? (azione A)
 // ------------------------------------------------------------
-export function canBuildCard(cardId, player, leftNeighbor, rightNeighbor) {
+export function canBuildCard(cardId, player, leftNeighbor, rightNeighbor, preference = null) {
   const card = getCardData(cardId)
   if (!card) return { possible: false, reason: 'Carta sconosciuta' }
   if ((player.built_cards || []).includes(cardId)) return { possible: false, reason: 'Edificio già costruito' }
-  if (hasFreeChain(card, player)) return { possible: true, coinCost: 0, free: true }
+  if (hasFreeChain(card, player)) return { possible: true, coinCost: 0, free: true, purchases: [] }
 
   const coinsCost = card.cost?.coins || 0
   if (coinsCost > 0 && coinsCost > player.coins) return { possible: false, reason: 'Monete insufficienti' }
@@ -227,9 +253,9 @@ export function canBuildCard(cardId, player, leftNeighbor, rightNeighbor) {
   const resourceCost = { ...(card.cost || {}) }
   delete resourceCost.coins
   if (Object.keys(resourceCost).length === 0) {
-    return { possible: true, coinCost: coinsCost, free: false }
+    return { possible: true, coinCost: coinsCost, free: false, purchases: [] }
   }
-  const resolved = resolveResourceCost(resourceCost, player, leftNeighbor, rightNeighbor)
+  const resolved = resolveResourceCost(resourceCost, player, leftNeighbor, rightNeighbor, preference)
   if (!resolved.payable) return { possible: false, reason: 'Risorse non disponibili (nemmeno dai vicini)' }
   const totalCoinCost = coinsCost + resolved.coinCost
   // IMPORTANTE: il controllo sopra (coinsCost > player.coins) verifica solo
@@ -238,13 +264,13 @@ export function canBuildCard(cardId, player, leftNeighbor, rightNeighbor) {
   // monete a unità) si somma e può da solo superare le monete disponibili.
   // Senza questo controllo finale il saldo può andare sotto zero.
   if (totalCoinCost > player.coins) return { possible: false, reason: 'Monete insufficienti per comprare le risorse mancanti dai vicini' }
-  return { possible: true, coinCost: totalCoinCost, free: false }
+  return { possible: true, coinCost: totalCoinCost, free: false, purchases: resolved.purchases }
 }
 
 // ------------------------------------------------------------
 // PUÒ COSTRUIRE IL PROSSIMO STADIO DELLA MERAVIGLIA? (azione B)
 // ------------------------------------------------------------
-export function canBuildWonderStage(player, leftNeighbor, rightNeighbor) {
+export function canBuildWonderStage(player, leftNeighbor, rightNeighbor, preference = null) {
   const side = getWonderStage(player)
   if (!side) return { possible: false, reason: 'Meraviglia non scelta' }
   const nextIndex = player.wonder_stages_built || 0
@@ -255,13 +281,13 @@ export function canBuildWonderStage(player, leftNeighbor, rightNeighbor) {
   if (coinsCost > 0 && coinsCost > player.coins) return { possible: false, reason: 'Monete insufficienti' }
   const resourceCost = { ...(stage.cost || {}) }
   delete resourceCost.coins
-  if (Object.keys(resourceCost).length === 0) return { possible: true, coinCost: coinsCost, stageIndex: nextIndex }
+  if (Object.keys(resourceCost).length === 0) return { possible: true, coinCost: coinsCost, stageIndex: nextIndex, purchases: [] }
 
-  const resolved = resolveResourceCost(resourceCost, player, leftNeighbor, rightNeighbor)
+  const resolved = resolveResourceCost(resourceCost, player, leftNeighbor, rightNeighbor, preference)
   if (!resolved.payable) return { possible: false, reason: 'Risorse non disponibili (nemmeno dai vicini)' }
   const totalCoinCost = coinsCost + resolved.coinCost
   if (totalCoinCost > player.coins) return { possible: false, reason: 'Monete insufficienti per comprare le risorse mancanti dai vicini' }
-  return { possible: true, coinCost: totalCoinCost, stageIndex: nextIndex }
+  return { possible: true, coinCost: totalCoinCost, stageIndex: nextIndex, purchases: resolved.purchases }
 }
 
 // ------------------------------------------------------------
@@ -312,26 +338,26 @@ export function applyAction(action, player, leftNeighbor, rightNeighbor) {
 // rileggere i vicini in quel momento — così il risultato non dipende
 // dall'ordine con cui i client si risolvono.
 // ------------------------------------------------------------
-export function prepareAction(action, cardId, player, leftNeighbor, rightNeighbor) {
+export function prepareAction(action, cardId, player, leftNeighbor, rightNeighbor, preference = null) {
   if (action === 'discard') {
-    return { action: 'discard', cardId, coinCost: 0, bonusCoins: 3 }
+    return { action: 'discard', cardId, coinCost: 0, bonusCoins: 3, purchases: [] }
   }
   if (action === 'build') {
-    const check = canBuildCard(cardId, player, leftNeighbor, rightNeighbor)
+    const check = canBuildCard(cardId, player, leftNeighbor, rightNeighbor, preference)
     if (!check.possible) throw new Error(check.reason)
     const card = getCardData(cardId)
     const bonusCoins = card?.effect?.kind === 'coins_on_build' ? card.effect.value : 0
-    return { action: 'build', cardId, coinCost: check.coinCost || 0, bonusCoins }
+    return { action: 'build', cardId, coinCost: check.coinCost || 0, bonusCoins, purchases: check.purchases || [] }
   }
   if (action === 'wonder') {
-    const check = canBuildWonderStage(player, leftNeighbor, rightNeighbor)
+    const check = canBuildWonderStage(player, leftNeighbor, rightNeighbor, preference)
     if (!check.possible) throw new Error(check.reason)
     const side = getWonderStage(player)
     const stage = side.stages[check.stageIndex]
     let bonusCoins = 0
     if (stage.effectKind === 'coins') bonusCoins = stage.effectValue
     if (stage.effectKind === 'vp_and_coins') bonusCoins = stage.effectValue.coins
-    return { action: 'wonder', cardId, coinCost: check.coinCost || 0, bonusCoins, stageIndex: check.stageIndex }
+    return { action: 'wonder', cardId, coinCost: check.coinCost || 0, bonusCoins, stageIndex: check.stageIndex, purchases: check.purchases || [] }
   }
   throw new Error(`Azione sconosciuta: ${action}`)
 }

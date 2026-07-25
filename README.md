@@ -39,6 +39,11 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOiJI...
 `SQL Editor` → **New query** → incolla **tutto** il contenuto di `supabase/schema.sql` → **Run**.
 Dovresti vedere `profiles`, `games`, `players`, `player_hands` in `Table Editor`.
 
+**Se il tuo database esiste già da prima** (progetto Supabase creato prima del 25/07): esegui
+anche `supabase/migration_002_payments.sql` — aggiunge il supporto al pagamento reale ai vicini
+quando gli compri risorse (colonna nuova + una policy). Se stai creando il database da zero
+adesso, non serve: `schema.sql` include già tutto.
+
 ## 6. Attiva la conferma email
 
 `Authentication` → `Providers` → `Email` → assicurati che **Confirm email** sia attivo.

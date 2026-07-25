@@ -96,6 +96,7 @@ create table if not exists player_hands (
   outgoing_hand jsonb,                                 -- carte che restano dopo la scelta, destinate al vicino
   outgoing_hand_for uuid,                               -- user_id del vicino destinatario di outgoing_hand
   dealt_age int,                                        -- per quale Epoca e' stata distribuita l'attuale "hand" — evita di ridistribuire piu' volte per la stessa Epoca
+  payments_out jsonb not null default '{}'::jsonb,     -- { [venditoreUserId]: { amount, turn } } — quanto si deve a un vicino per risorse comprate questo turno (vedi RLS sotto: il venditore puo' leggere solo la propria voce)
   unique (game_id, user_id)
 );
 
@@ -137,9 +138,16 @@ create policy "players: un utente aggiorna solo la propria riga" on players
 
 -- player_hands: leggibile dal proprietario, oppure da chi e' il
 -- destinatario indicato in outgoing_hand_for (il vicino che deve
--- ricevere le carte avanzate). Scrivibile SEMPRE E SOLO dal proprietario.
-create policy "player_hands: lettura proprietario o destinatario" on player_hands
-  for select using (auth.uid() = user_id or auth.uid() = outgoing_hand_for);
+-- ricevere le carte avanzate), OPPURE se payments_out contiene una
+-- voce con la sua user_id come chiave (il vicino a cui e' dovuto un
+-- pagamento per risorse vendute questo turno — vedi Game.jsx). Nota:
+-- la policy e' comunque per RIGA intera, quindi chi legge per uno di
+-- questi motivi vede anche hand/pending_action del proprietario — un
+-- limite noto e accettato, coerente con lo spirito "client fidato" di
+-- questo progetto (vedi nota di fondo pagina).
+-- Scrivibile SEMPRE E SOLO dal proprietario.
+create policy "player_hands: lettura proprietario, destinatario o creditore" on player_hands
+  for select using (auth.uid() = user_id or auth.uid() = outgoing_hand_for or payments_out ? (auth.uid()::text));
 create policy "player_hands: insert solo proprio" on player_hands
   for insert with check (auth.uid() = user_id);
 create policy "player_hands: update solo proprio" on player_hands
