@@ -22,6 +22,7 @@ import { page, cardWide, title, primaryButton, secondaryButton, pillButton, erro
 const COLOR_LABEL = { brown: '🟤', grey: '⚪', blue: '🔵', yellow: '🟡', red: '🔴', green: '🟢', purple: '🟣' }
 const RESOURCE_ICON = { clay: '🧱', stone: '🪨', ore: '⛏️', wood: '🪵', glass: '🔷', loom: '🧵', papyrus: '📜' }
 const RESOURCE_NAME = { clay: 'Argilla', stone: 'Pietra', ore: 'Minerale', wood: 'Legno', glass: 'Vetro', loom: 'Tessuto', papyrus: 'Papiro' }
+const AGE_ROMAN = { 1: 'I', 2: 'II', 3: 'III' }
 const SCIENCE_ICON = { compass: '🧭', gear: '⚙️', tablet: '📝' }
 const COLOR_NAME = { brown: 'Marrone', grey: 'Grigia', blue: 'Blu', yellow: 'Gialla', red: 'Rossa', green: 'Verde', purple: 'Viola' }
 
@@ -395,56 +396,74 @@ export default function Game({ profile }) {
     resolvingRef.current = turnKey
 
     async function resolve() {
-      const { data: freshHand } = await supabase.from('player_hands').select().eq('id', myHand.id).single()
-      const prepared = freshHand?.pending_action
-      if (!prepared) {
-        resolvingRef.current = null
-        return
-      }
-      const updatedPublic = applyPreparedAction(prepared, myPlayer)
-      const isLastTurnOfAge = game.turn_number >= 6
-
-      // Scrittura atomica: procede solo se turn_applied non è già
-      // arrivato a questo turno (protegge da doppia applicazione).
-      const { data: claimed } = await supabase
-        .from('players')
-        .update({
-          coins: updatedPublic.coins,
-          built_cards: updatedPublic.built_cards,
-          wonder_stages_built: updatedPublic.wonder_stages_built,
-          ready_this_turn: false,
-          turn_applied: game.turn_number
-        })
-        .eq('id', myPlayer.id)
-        .lt('turn_applied', game.turn_number)
-        .select()
-
-      if (claimed && claimed.length > 0) {
-        let newHand = []
-        if (!isLastTurnOfAge) {
-          // Rilettura fresca e mirata: cerca la riga che IL VICINO ha
-          // indirizzato a noi, invece di fidarsi della cache realtime.
-          const { data: incoming } = await supabase
-            .from('player_hands')
-            .select('outgoing_hand')
-            .eq('game_id', gameId)
-            .eq('outgoing_hand_for', myUserId)
-            .neq('user_id', myUserId)
-            .maybeSingle()
-          newHand = incoming?.outgoing_hand || []
+      try {
+        const { data: freshHand, error: freshHandError } = await supabase.from('player_hands').select().eq('id', myHand.id).single()
+        if (freshHandError) console.error('[resolveTurn] errore rilettura mano propria:', freshHandError)
+        const prepared = freshHand?.pending_action
+        if (!prepared) {
+          resolvingRef.current = null
+          return
         }
-        await supabase
-          .from('player_hands')
+        const updatedPublic = applyPreparedAction(prepared, myPlayer)
+        const isLastTurnOfAge = game.turn_number >= 6
+
+        // Scrittura atomica: procede solo se turn_applied non è già
+        // arrivato a questo turno (protegge da doppia applicazione).
+        const { data: claimed, error: claimError } = await supabase
+          .from('players')
           .update({
-            hand: newHand,
-            pending_action: null,
-            outgoing_hand: null,
-            outgoing_hand_for: null,
-            dealt_age: isLastTurnOfAge ? freshHand.dealt_age : game.age
+            coins: updatedPublic.coins,
+            built_cards: updatedPublic.built_cards,
+            wonder_stages_built: updatedPublic.wonder_stages_built,
+            ready_this_turn: false,
+            turn_applied: game.turn_number
           })
-          .eq('id', myHand.id)
+          .eq('id', myPlayer.id)
+          .lt('turn_applied', game.turn_number)
+          .select()
+        if (claimError) console.error('[resolveTurn] errore applicazione azione:', claimError)
+
+        if (claimed && claimed.length > 0) {
+          let newHand = []
+          if (!isLastTurnOfAge) {
+            // Rilettura fresca e mirata: cerca la riga che IL VICINO ha
+            // indirizzato a noi, invece di fidarsi della cache realtime.
+            // Un paio di brevi tentativi extra in caso il vicino stia
+            // ancora completando la propria scrittura in quello stesso
+            // istante (difesa in più oltre alla logica di "tutti pronti").
+            for (let attempt = 0; attempt < 3; attempt++) {
+              const { data: incoming, error: incomingError } = await supabase
+                .from('player_hands')
+                .select('outgoing_hand')
+                .eq('game_id', gameId)
+                .eq('outgoing_hand_for', myUserId)
+                .neq('user_id', myUserId)
+                .maybeSingle()
+              if (incomingError) console.error('[resolveTurn] errore lettura mano in arrivo:', incomingError)
+              if (incoming?.outgoing_hand?.length || attempt === 2) {
+                newHand = incoming?.outgoing_hand || []
+                break
+              }
+              await new Promise((res) => setTimeout(res, 300))
+            }
+          }
+          const { error: handUpdateError } = await supabase
+            .from('player_hands')
+            .update({
+              hand: newHand,
+              pending_action: null,
+              outgoing_hand: null,
+              outgoing_hand_for: null,
+              dealt_age: isLastTurnOfAge ? freshHand.dealt_age : game.age
+            })
+            .eq('id', myHand.id)
+          if (handUpdateError) console.error('[resolveTurn] errore scrittura nuova mano:', handUpdateError)
+        }
+      } catch (err) {
+        console.error('[resolveTurn] eccezione imprevista:', err)
+      } finally {
+        resolvingRef.current = null
       }
-      resolvingRef.current = null
     }
     resolve()
   }, [game, myPlayer, myHand, players, numPlayers, gameId, myUserId])
@@ -466,65 +485,74 @@ export default function Game({ profile }) {
     advancingRef.current = true
 
     async function advance() {
-      if (game.turn_number < 6) {
-        await supabase
-          .from('games')
-          .update({ turn_number: game.turn_number + 1 })
-          .eq('id', gameId)
-          .eq('turn_number', game.turn_number)
+      try {
+        if (game.turn_number < 6) {
+          await supabase
+            .from('games')
+            .update({ turn_number: game.turn_number + 1 })
+            .eq('id', gameId)
+            .eq('turn_number', game.turn_number)
+          return
+        }
+
+        // Fine Epoca: rilettura fresca di tutti i giocatori (non fidarsi
+        // dello stato React) prima di calcolare i conflitti militari.
+        const { data: freshRaw, error: freshError } = await supabase.from('players').select().eq('game_id', gameId)
+        if (freshError) console.error('[advanceAge] errore rilettura giocatori:', freshError)
+        const freshPlayers = (game.turn_order || []).map((id) => freshRaw?.find((p) => p.id === id)).filter(Boolean)
+        const freshMe = freshRaw?.find((p) => p.id === myPlayer.id) || myPlayer
+
+        // Idempotenza: se per qualche motivo questo blocco venisse
+        // eseguito due volte per la stessa Epoca (es. lo stato locale
+        // "game.age" non si è ancora aggiornato dopo che UN client ha già
+        // fatto avanzare l'Epoca), non aggiungere due volte i gettoni.
+        const alreadyResolvedThisAge = (freshMe.military_tokens || []).some((t) => t.age === game.age)
+        let newTokens = freshMe.military_tokens || []
+        if (!alreadyResolvedThisAge && freshPlayers.length === numPlayers) {
+          const results = resolveMilitaryConflict(freshPlayers, game.age)
+          const myTokens = results[myPlayer.id] || []
+          newTokens = [...newTokens, ...myTokens]
+        }
+
+        if (game.age < 3) {
+          const nextAge = game.age + 1
+          const deck = buildAgeDeck(nextAge, numPlayers)
+          if (!alreadyResolvedThisAge) {
+            const { error } = await supabase
+              .from('players')
+              .update({ military_tokens: newTokens, turn_applied: 0, ready_this_turn: false })
+              .eq('id', myPlayer.id)
+            if (error) console.error('[advanceAge] errore scrittura gettoni militari:', error)
+          }
+          const { error } = await supabase
+            .from('games')
+            .update({ age: nextAge, turn_number: 1, age_decks: { ...game.age_decks, [nextAge]: deck } })
+            .eq('id', gameId)
+            .eq('age', game.age)
+          if (error) console.error('[advanceAge] errore avanzamento epoca:', error)
+        } else {
+          if (!alreadyResolvedThisAge) {
+            const playersWithMilitary = freshPlayers.map((p) => (p.id === myPlayer.id ? { ...p, military_tokens: newTokens } : p))
+            const scores = scoreGame(playersWithMilitary)
+            const myScore = scores.find((s) => s.playerId === myPlayer.id)
+            const { error } = await supabase
+              .from('players')
+              .update({ military_tokens: newTokens, final_score: myScore, turn_applied: 0, ready_this_turn: false })
+              .eq('id', myPlayer.id)
+            if (error) console.error('[advanceAge] errore scrittura punteggio finale:', error)
+          }
+          const { error } = await supabase
+            .from('games')
+            .update({ status: 'finished', finished_at: new Date().toISOString() })
+            .eq('id', gameId)
+            .eq('status', 'playing')
+          if (error) console.error('[advanceAge] errore chiusura partita:', error)
+        }
+      } catch (err) {
+        console.error('[advanceAge] eccezione imprevista:', err)
+      } finally {
         advancingRef.current = false
-        return
       }
-
-      // Fine Epoca: rilettura fresca di tutti i giocatori (non fidarsi
-      // dello stato React) prima di calcolare i conflitti militari.
-      const { data: freshRaw } = await supabase.from('players').select().eq('game_id', gameId)
-      const freshPlayers = (game.turn_order || []).map((id) => freshRaw?.find((p) => p.id === id)).filter(Boolean)
-      const freshMe = freshRaw?.find((p) => p.id === myPlayer.id) || myPlayer
-
-      // Idempotenza: se per qualche motivo questo blocco venisse
-      // eseguito due volte per la stessa Epoca (es. lo stato locale
-      // "game.age" non si è ancora aggiornato dopo che UN client ha già
-      // fatto avanzare l'Epoca), non aggiungere due volte i gettoni.
-      const alreadyResolvedThisAge = (freshMe.military_tokens || []).some((t) => t.age === game.age)
-      let newTokens = freshMe.military_tokens || []
-      if (!alreadyResolvedThisAge && freshPlayers.length === numPlayers) {
-        const results = resolveMilitaryConflict(freshPlayers, game.age)
-        const myTokens = results[myPlayer.id] || []
-        newTokens = [...newTokens, ...myTokens]
-      }
-
-      if (game.age < 3) {
-        const nextAge = game.age + 1
-        const deck = buildAgeDeck(nextAge, numPlayers)
-        if (!alreadyResolvedThisAge) {
-          await supabase
-            .from('players')
-            .update({ military_tokens: newTokens, turn_applied: 0, ready_this_turn: false })
-            .eq('id', myPlayer.id)
-        }
-        await supabase
-          .from('games')
-          .update({ age: nextAge, turn_number: 1, age_decks: { ...game.age_decks, [nextAge]: deck } })
-          .eq('id', gameId)
-          .eq('age', game.age)
-      } else {
-        if (!alreadyResolvedThisAge) {
-          const playersWithMilitary = freshPlayers.map((p) => (p.id === myPlayer.id ? { ...p, military_tokens: newTokens } : p))
-          const scores = scoreGame(playersWithMilitary)
-          const myScore = scores.find((s) => s.playerId === myPlayer.id)
-          await supabase
-            .from('players')
-            .update({ military_tokens: newTokens, final_score: myScore, turn_applied: 0, ready_this_turn: false })
-            .eq('id', myPlayer.id)
-        }
-        await supabase
-          .from('games')
-          .update({ status: 'finished', finished_at: new Date().toISOString() })
-          .eq('id', gameId)
-          .eq('status', 'playing')
-      }
-      advancingRef.current = false
     }
     advance()
   }, [game, players, myPlayer, numPlayers, gameId])
@@ -781,10 +809,11 @@ export default function Game({ profile }) {
                                   <div
                                     key={card.id}
                                     style={{
+                                      position: 'relative',
                                       background: '#f5f0e6',
                                       border: '1px solid #e4ddcc',
                                       borderRadius: 6,
-                                      padding: '3px 6px',
+                                      padding: '3px 16px 12px 6px',
                                       minWidth: 130,
                                       maxWidth: 170
                                     }}
@@ -798,6 +827,14 @@ export default function Game({ profile }) {
                                         {line}
                                       </div>
                                     ))}
+                                    {card.age && (
+                                      <span
+                                        title={`Epoca ${AGE_ROMAN[card.age]}`}
+                                        style={{ position: 'absolute', right: 5, bottom: 2, fontSize: '0.6rem', fontWeight: 700, color: '#a89b86' }}
+                                      >
+                                        {AGE_ROMAN[card.age]}
+                                      </span>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -827,9 +864,10 @@ export default function Game({ profile }) {
                     key={cardId}
                     onClick={() => setSelectedCardId(cardId)}
                     style={{
+                      position: 'relative',
                       border: selected ? '2px solid #8a6a48' : '1px solid #e4ddcc',
                       borderRadius: 10,
-                      padding: 10,
+                      padding: '10px 10px 18px 10px',
                       width: 190,
                       cursor: 'pointer',
                       background: '#fff'
@@ -845,6 +883,21 @@ export default function Game({ profile }) {
                         {line}
                       </div>
                     ))}
+                    {card.age && (
+                      <span
+                        title={`Epoca ${AGE_ROMAN[card.age]}`}
+                        style={{
+                          position: 'absolute',
+                          right: 6,
+                          bottom: 4,
+                          fontSize: '0.65rem',
+                          fontWeight: 700,
+                          color: '#a89b86'
+                        }}
+                      >
+                        {AGE_ROMAN[card.age]}
+                      </span>
+                    )}
                     {selected && (
                       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <button style={pillButton} onClick={() => chooseAction(cardId, 'build')}>

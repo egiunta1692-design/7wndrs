@@ -231,7 +231,14 @@ export function canBuildCard(cardId, player, leftNeighbor, rightNeighbor) {
   }
   const resolved = resolveResourceCost(resourceCost, player, leftNeighbor, rightNeighbor)
   if (!resolved.payable) return { possible: false, reason: 'Risorse non disponibili (nemmeno dai vicini)' }
-  return { possible: true, coinCost: coinsCost + resolved.coinCost, free: false }
+  const totalCoinCost = coinsCost + resolved.coinCost
+  // IMPORTANTE: il controllo sopra (coinsCost > player.coins) verifica solo
+  // il costo "in monete" indicato sulla carta — non basta, perché
+  // resolved.coinCost (l'acquisto di risorse mancanti dai vicini, 1 o 2
+  // monete a unità) si somma e può da solo superare le monete disponibili.
+  // Senza questo controllo finale il saldo può andare sotto zero.
+  if (totalCoinCost > player.coins) return { possible: false, reason: 'Monete insufficienti per comprare le risorse mancanti dai vicini' }
+  return { possible: true, coinCost: totalCoinCost, free: false }
 }
 
 // ------------------------------------------------------------
@@ -252,7 +259,9 @@ export function canBuildWonderStage(player, leftNeighbor, rightNeighbor) {
 
   const resolved = resolveResourceCost(resourceCost, player, leftNeighbor, rightNeighbor)
   if (!resolved.payable) return { possible: false, reason: 'Risorse non disponibili (nemmeno dai vicini)' }
-  return { possible: true, coinCost: coinsCost + resolved.coinCost, stageIndex: nextIndex }
+  const totalCoinCost = coinsCost + resolved.coinCost
+  if (totalCoinCost > player.coins) return { possible: false, reason: 'Monete insufficienti per comprare le risorse mancanti dai vicini' }
+  return { possible: true, coinCost: totalCoinCost, stageIndex: nextIndex }
 }
 
 // ------------------------------------------------------------
