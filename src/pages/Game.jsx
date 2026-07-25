@@ -694,7 +694,6 @@ export default function Game({ profile }) {
             <strong>
               {isExpanded ? '▾' : '▸'} {p.nickname} {game.status === 'playing' ? (p.ready_this_turn ? '✅' : '⏳') : ''}
             </strong>
-            <span>🪙{p.coins}</span>
           </div>
 
           {live && (
@@ -714,7 +713,7 @@ export default function Game({ profile }) {
               }}
             >
               <span>🛡️ Militari {live.military} (⚔️{militaryStrength})</span>
-              <span>💰 Tesoro {live.treasury}</span>
+              <span>💰 Tesoro {live.treasury} (🪙{p.coins})</span>
               <span>🏛️ Meraviglia {live.wonder}</span>
               <span>🔵 Blu {live.blue}</span>
               <span>🟡 Gialle {live.yellow}</span>
