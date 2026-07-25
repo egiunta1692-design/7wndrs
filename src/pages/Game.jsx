@@ -694,6 +694,7 @@ export default function Game({ profile }) {
             <strong>
               {isExpanded ? '▾' : '▸'} {p.nickname} {game.status === 'playing' ? (p.ready_this_turn ? '✅' : '⏳') : ''}
             </strong>
+            <span>🪙{p.coins}</span>
           </div>
 
           {live && (
