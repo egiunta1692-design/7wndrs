@@ -113,6 +113,28 @@ function tradeDiscountSummary(player) {
   return parts.join(' ')
 }
 
+// Conta i simboli scientifici fissi accumulati (carte Verdi + stadi
+// Meraviglia) e quanti "a scelta libera" restano da assegnare (Gilda
+// degli Scienziati esclusa: quella si applica solo nel punteggio
+// finale, qui interessa la produzione/collezione in corso).
+function computeScienceSymbols(player) {
+  const fixed = { compass: 0, gear: 0, tablet: 0 }
+  let choices = 0
+  for (const cardId of player.built_cards || []) {
+    const card = getCardData(cardId)
+    if (card?.color !== 'green' || !card.effect) continue
+    if (card.effect.kind === 'science') fixed[card.effect.value]++
+    if (card.effect.kind === 'science_choice') choices++
+  }
+  const side = WONDERS[player.wonder_id]?.sides[player.wonder_side]
+  if (side) {
+    for (let i = 0; i < (player.wonder_stages_built || 0); i++) {
+      if (side.stages[i]?.effectKind === 'science') choices += side.stages[i].effectValue
+    }
+  }
+  return { fixed, choices }
+}
+
 function formatElapsed(ms) {
   if (ms == null || ms < 0) return '—'
   const totalSeconds = Math.floor(ms / 1000)
@@ -673,6 +695,7 @@ export default function Game({ profile }) {
       const militaryTotal = (p.military_tokens || []).reduce((sum, t) => sum + (t.value ?? 0), 0)
       const militaryStrength = computeMilitaryStrength(p)
       const production = computeProduction(p)
+      const science = computeScienceSymbols(p)
       const trade = tradeDiscountSummary(p)
       const live = liveScoresById[p.id]
       const isExpanded = expandedPlayerId ? expandedPlayerId === p.id : p.id === myPlayer.id
@@ -723,36 +746,66 @@ export default function Game({ profile }) {
             </div>
           )}
 
-          <div
-            title="Numero di carte per colore (utile per le Gilde che contano le carte dei vicini) · Produzione risorse per turno · Sconti commercio attivi (◄ vicino sinistro, ► destro, ↔ entrambi)"
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 8,
-              fontSize: '0.72rem',
-              color: '#5a5142',
-              marginTop: 6
-            }}
-          >
-            {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple'].map((color) => (
-              <span key={color}>
-                {COLOR_LABEL[color]}
-                {(cardsByColor[color] || []).length}
-              </span>
-            ))}
-            <span>·</span>
-            {Object.entries(production.fixed)
-              .filter(([, n]) => n > 0)
-              .map(([r, n]) => (
-                <span key={r}>
-                  +{n}
-                  {RESOURCE_ICON[r]}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.72rem', color: '#5a5142', marginTop: 6 }}>
+            <div title="Numero di carte per colore — utile per le Gilde che contano le carte dei vicini">
+              <span style={{ color: '#a89b86' }}>🎨 Carte: </span>
+              {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple'].map((color) => (
+                <span key={color} style={{ marginRight: 6 }}>
+                  {COLOR_LABEL[color]}
+                  {(cardsByColor[color] || []).length}
                 </span>
               ))}
-            {production.choiceGenerators.map((gen, i) => (
-              <span key={i}>+1 a scelta: {gen.map((r) => RESOURCE_ICON[r]).join('/')}</span>
-            ))}
-            {trade && <span>🔀 {trade}</span>}
+            </div>
+
+            <div title="Risorse fisse prodotte a ogni turno">
+              <span style={{ color: '#a89b86' }}>📦 Produzione: </span>
+              {Object.entries(production.fixed).filter(([, n]) => n > 0).length === 0 ? (
+                <span>—</span>
+              ) : (
+                Object.entries(production.fixed)
+                  .filter(([, n]) => n > 0)
+                  .map(([r, n]) => (
+                    <span key={r} style={{ marginRight: 6 }}>
+                      +{n}
+                      {RESOURCE_ICON[r]}
+                    </span>
+                  ))
+              )}
+            </div>
+
+            {production.choiceGenerators.length > 0 && (
+              <div title="Risorse producibili a scelta (1 unità a turno per ciascun generatore)">
+                <span style={{ color: '#a89b86' }}>🔀 A scelta: </span>
+                {production.choiceGenerators.map((gen, i) => (
+                  <span key={i} style={{ marginRight: 6 }}>
+                    +1 {gen.map((r) => RESOURCE_ICON[r]).join('/')}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {trade && (
+              <div title="Sconti commercio attivi: ◄ vicino sinistro, ► destro, ↔ entrambi">
+                <span style={{ color: '#a89b86' }}>💱 Commercio: </span>
+                {trade}
+              </div>
+            )}
+
+            {(science.fixed.compass > 0 || science.fixed.gear > 0 || science.fixed.tablet > 0 || science.choices > 0) && (
+              <div title="Simboli scientifici accumulati finora (i punti si calcolano solo a fine partita)">
+                <span style={{ color: '#a89b86' }}>🔬 Scienza: </span>
+                <span style={{ marginRight: 6 }}>
+                  {SCIENCE_ICON.compass}×{science.fixed.compass}
+                </span>
+                <span style={{ marginRight: 6 }}>
+                  {SCIENCE_ICON.gear}×{science.fixed.gear}
+                </span>
+                <span style={{ marginRight: 6 }}>
+                  {SCIENCE_ICON.tablet}×{science.fixed.tablet}
+                </span>
+                {science.choices > 0 && <span>+{science.choices} a scelta</span>}
+              </div>
+            )}
           </div>
 
           {isExpanded && (
