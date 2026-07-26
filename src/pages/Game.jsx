@@ -429,6 +429,20 @@ export default function Game({ profile }) {
       if (!isLastTurnOfAge) {
         const recipientSeat = passRecipientSeat(game.age, mySeat, numPlayers)
         const recipient = seatToPlayer[recipientSeat]
+        if (!recipient) {
+          // Non dovrebbe MAI succedere (turn_order è fisso per tutta la
+          // partita) — se capita, meglio un errore rumoroso e visibile
+          // che un invio silenzioso a nessuno (causa nota di "mano vuota").
+          console.error('[chooseAction] destinatario mancante!', {
+            mySeat,
+            recipientSeat,
+            numPlayers,
+            turnOrder,
+            seatToPlayer: Object.fromEntries(Object.entries(seatToPlayer).map(([k, v]) => [k, v?.id]))
+          })
+          throw new Error('Errore interno: destinatario della mano non trovato. Riprova, e se persiste segnalalo.')
+        }
+        console.log('[chooseAction] turno', game.turn_number, 'invio mano residua a', recipient.nickname, 'seat', recipientSeat, 'user_id', recipient.user_id, 'carte:', remainingHand)
         update.outgoing_hand = remainingHand
         update.outgoing_hand_for = recipient.user_id
       } else {
@@ -552,7 +566,7 @@ export default function Game({ profile }) {
             // Un paio di brevi tentativi extra in caso il vicino stia
             // ancora completando la propria scrittura in quello stesso
             // istante (difesa in più oltre alla logica di "tutti pronti").
-            for (let attempt = 0; attempt < 3; attempt++) {
+            for (let attempt = 0; attempt < 5; attempt++) {
               const { data: incoming, error: incomingError } = await supabase
                 .from('player_hands')
                 .select('outgoing_hand')
@@ -561,8 +575,17 @@ export default function Game({ profile }) {
                 .neq('user_id', myUserId)
                 .maybeSingle()
               if (incomingError) console.error('[resolveTurn] errore lettura mano in arrivo:', incomingError)
-              if (incoming?.outgoing_hand?.length || attempt === 2) {
+              console.log('[resolveTurn] turno', game.turn_number, 'tentativo', attempt, 'mano in arrivo trovata:', incoming)
+              if (incoming?.outgoing_hand?.length || attempt === 4) {
                 newHand = incoming?.outgoing_hand || []
+                if (newHand.length === 0) {
+                  console.warn('[resolveTurn] MANO VUOTA dopo tutti i tentativi — segnalare questo log:', {
+                    myUserId,
+                    gameId,
+                    turn: game.turn_number,
+                    ultimoIncoming: incoming
+                  })
+                }
                 break
               }
               await new Promise((res) => setTimeout(res, 300))
