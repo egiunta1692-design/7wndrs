@@ -858,7 +858,6 @@ export default function Game({ profile }) {
                       .filter((color) => cardsByColor[color])
                       .map((color) => (
                         <div key={color} style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '0.68rem', color: '#a89b86', paddingTop: 4, width: 14 }}>{COLOR_LABEL[color]}</span>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1 }}>
                             {cardsByColor[color].map((card) => (
                               <div
