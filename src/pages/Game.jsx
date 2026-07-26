@@ -391,11 +391,17 @@ export default function Game({ profile }) {
     if (myHand.dealt_age === game.age) return
     dealingRef.current = true
     const hand = dealHandForSeat(deck, mySeat)
+    const dealtRow = { ...myHand, hand, pending_action: null, outgoing_hand: null, outgoing_hand_for: null, dealt_age: game.age }
     supabase
       .from('player_hands')
       .update({ hand, pending_action: null, outgoing_hand: null, outgoing_hand_for: null, dealt_age: game.age })
       .eq('id', myHand.id)
-      .then(() => {
+      .then(({ error }) => {
+        if (error) {
+          console.error('[dealHand] errore distribuzione mano:', error)
+        } else {
+          setMyHandRows((prev) => prev.map((h) => (h.id === myHand.id ? dealtRow : h)))
+        }
         dealingRef.current = false
       })
   }, [game, myHand, mySeat])
@@ -559,6 +565,16 @@ export default function Game({ profile }) {
         if (claimError) console.error('[resolveTurn] errore applicazione azione:', claimError)
 
         if (claimed && claimed.length > 0) {
+          // Aggiornamento OTTIMISTICO immediato: questo client conosce già
+          // con certezza il risultato appena scritto, non ha senso che
+          // aspetti l'eco realtime per aggiornare la propria interfaccia
+          // (quell'attesa, anche solo di una frazione di secondo, è quella
+          // che produce il lampeggio "mano vuota per un istante" osservato
+          // dopo la costruzione di uno stadio Meraviglia — e la stessa
+          // finestra, se allargata da un ritardo di rete, potrebbe essere
+          // la causa della mano che resta vuota più a lungo).
+          setPlayers((prev) => prev.map((pl) => (pl.id === myPlayer.id ? { ...pl, ...claimed[0] } : pl)))
+
           let newHand = []
           if (!isLastTurnOfAge) {
             // Rilettura fresca e mirata: cerca la riga che IL VICINO ha
@@ -591,6 +607,19 @@ export default function Game({ profile }) {
               await new Promise((res) => setTimeout(res, 300))
             }
           }
+          const newHandRow = {
+            ...freshHand,
+            hand: newHand,
+            pending_action: null,
+            outgoing_hand: null,
+            outgoing_hand_for: null,
+            dealt_age: isLastTurnOfAge ? freshHand.dealt_age : game.age
+          }
+          // ORDINE IMPORTANTE: prima si scrive e si aspetta conferma dal
+          // database, SOLO DOPO si rispecchia in locale — mai il
+          // contrario, altrimenti se questa scrittura fallisse (errore di
+          // rete, RLS, ecc.) il client mostrerebbe uno stato che nel
+          // database non esiste mai stato.
           const { error: handUpdateError } = await supabase
             .from('player_hands')
             .update({
@@ -598,10 +627,14 @@ export default function Game({ profile }) {
               pending_action: null,
               outgoing_hand: null,
               outgoing_hand_for: null,
-              dealt_age: isLastTurnOfAge ? freshHand.dealt_age : game.age
+              dealt_age: newHandRow.dealt_age
             })
             .eq('id', myHand.id)
-          if (handUpdateError) console.error('[resolveTurn] errore scrittura nuova mano:', handUpdateError)
+          if (handUpdateError) {
+            console.error('[resolveTurn] errore scrittura nuova mano:', handUpdateError)
+          } else {
+            setMyHandRows((prev) => prev.map((h) => (h.id === myHand.id ? newHandRow : h)))
+          }
         }
       } catch (err) {
         console.error('[resolveTurn] eccezione imprevista:', err)
