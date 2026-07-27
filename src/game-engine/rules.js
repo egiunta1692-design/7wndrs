@@ -216,9 +216,23 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor, p
     if (preference === 'right') {
       tryRight()
       tryLeft()
-    } else {
+    } else if (preference === 'left') {
       tryLeft()
       tryRight()
+    } else {
+      // Indifferente: a parità di costo tra i due vicini, l'ordine in cui
+      // si esplora per primo decide chi viene scelto (per via del "<" più
+      // sotto, la prima soluzione a costo minimo trovata è quella che
+      // resta) — senza questa randomizzazione "indifferente" finiva per
+      // significare sempre "preferisci sinistra", non una vera scelta
+      // equilibrata. Si tira una moneta per ogni unità ambigua.
+      if (Math.random() < 0.5) {
+        tryLeft()
+        tryRight()
+      } else {
+        tryRight()
+        tryLeft()
+      }
     }
   }
 
