@@ -5,6 +5,7 @@ import {
   WONDER_IDS,
   WONDERS,
   buildAgeDeck,
+  HAND_SIZE,
   dealHandForSeat,
   leftNeighborSeat,
   rightNeighborSeat,
@@ -364,8 +365,30 @@ export default function Game({ profile }) {
 
   async function startGame() {
     const ids = players.map((p) => p.id)
+    const n = ids.length
+
+    // Controllo di sicurezza CRITICO: verifica che ogni Epoca abbia
+    // abbastanza carte per distribuire una mano completa a tutti, PRIMA
+    // di avviare la partita. Senza questo controllo, un mazzo troppo
+    // corto per il numero di giocatori scelto produce mani vuote a
+    // metà partita (bug osservato e diagnosticato — vedi cards.js: i
+    // dati minPlayers non garantiscono ancora esattamente 7 carte a
+    // giocatore per N alti). Meglio bloccare qui, con un messaggio
+    // chiaro, che corrompere silenziosamente una partita in corso.
+    const shortages = [1, 2, 3]
+      .map((age) => ({ age, size: buildAgeDeck(age, n).length, needed: HAND_SIZE * n }))
+      .filter((d) => d.size < d.needed)
+    if (shortages.length > 0) {
+      const detail = shortages.map((d) => `Epoca ${AGE_ROMAN[d.age]}: ${d.size}/${d.needed} carte`).join(', ')
+      setError(
+        `Con ${n} giocatori il mazzo attuale non ha abbastanza carte in tutte le Epoche (${detail}). ` +
+          `È un problema noto di dati (mancano copie duplicate di alcune carte per le partite più numerose) — per ora prova con meno giocatori.`
+      )
+      return
+    }
+
     const shuffled = [...ids].sort(() => Math.random() - 0.5)
-    const deck1 = buildAgeDeck(1, ids.length)
+    const deck1 = buildAgeDeck(1, n)
     await supabase
       .from('games')
       .update({

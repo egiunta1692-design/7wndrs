@@ -87,7 +87,7 @@ export const GUILDS = [
     name: 'Gilda degli Arredatori',
     age: 3,
     color: 'purple',
-    minPlayers: 4,
+    minPlayers: 3,
     cost: { wood: 2, stone: 2, loom: 1, papyrus: 1 },
     scoringKind: 'all_wonder_stages_flat',
     scoringValue: { vp: 7 }

@@ -1,10 +1,16 @@
 // ============================================================
-// CARTE EPOCA — le 73 carte non-Gilda (Marroni/Grigie/Blu/Gialle/
-// Rosse/Verdi) di Epoca I, II, III.
+// CARTE EPOCA — le 70 carte non-Gilda (Marroni/Grigie/Blu/Gialle/
+// Rosse/Verdi) di Epoca I, II, III, espanse in 138 copie fisiche
+// (vedi EXACT_THRESHOLDS più sotto).
 //
 // LIVELLO DI CONFIDENZA:
 // - NOMI, COLORI, EPOCA: ALTA — trascritti 1:1 dalla scheda "Elenco
-//   delle Carte" allegata (73 nomi, in ordine, per epoca).
+//   delle Carte" allegata.
+// - NUMERO DI COPIE E SOGLIE DI GIOCATORI PER OGNI CARTA (EXACT_THRESHOLDS
+//   più sotto): ALTA — confermate dall'utente carta per carta contro il
+//   mazzo fisico (25/07). Il totale (49+49+50=148 con le Gilde) torna
+//   esattamente con quanto dichiarato nel regolamento: forte conferma
+//   indipendente di correttezza.
 // - VALORI PV DELLE CARTE BLU DI EPOCA III (Pantheon 7, Municipio 6,
 //   Palazzo 8, Senato 6, Giardini 5): ALTA — numeri grandi leggibili
 //   direttamente nella foto della scheda.
@@ -12,11 +18,11 @@
 //   Camera di Commercio) e "produce 2 unità"/"produce a scelta" delle
 //   Marroni/Grigie di Epoca II: ALTA — testo esplicito nella scheda
 //   "Descrizione degli Effetti".
-// - COSTI IN RISORSE ESATTI di ogni singola carta e MINIMO GIOCATORI
-//   preciso per carta: MEDIA — ricostruiti dalla mia conoscenza
-//   generale del gioco, le icone non erano leggibili con certezza
-//   pixel per pixel nelle foto. Da verificare contro il mazzo fisico:
-//   è un file isolato, una riga per carta, facile da correggere.
+// - COSTI IN RISORSE ESATTI di ogni singola carta: MEDIA — ricostruiti
+//   dalla mia conoscenza generale del gioco, le icone non erano
+//   leggibili con certezza pixel per pixel nelle foto. Da verificare
+//   contro il mazzo fisico: è un file isolato, una riga per carta,
+//   facile da correggere.
 // - CATENE (chainFrom): MEDIA — vedi nota dedicata in fondo al file.
 // ============================================================
 
@@ -32,8 +38,14 @@ function brownChoice(id, name, resources, minPlayers) {
 function greyFixed(id, name, resource, minPlayers) {
   return { id, name, age: 1, color: 'grey', minPlayers, cost: {}, effect: { kind: 'produce_fixed', value: resource } }
 }
+// Le carte Grigie di Epoca II hanno lo stesso nome di quelle di Epoca I
+// (stesso edificio, seconda copia nel mazzo successivo) — helper separato
+// per chiarezza sull'id univoco.
+function greyFixed2Age(id, name, resource, minPlayers) {
+  return { id, name, age: 2, color: 'grey', minPlayers, cost: {}, effect: { kind: 'produce_fixed', value: resource } }
+}
 
-export const CARDS = [
+const BASE_CARDS = [
   // ============================== EPOCA I ==============================
   // --- Marroni (Materie Prime) ---
   brownFixed('cantiere-abbattimento', "Cantiere d'Abbattimento", 'wood', 3),
@@ -230,12 +242,119 @@ export const CARDS = [
   { id: 'universita', name: 'Università', age: 3, color: 'green', minPlayers: 3, cost: { wood: 2, papyrus: 1 }, effect: { kind: 'science_choice' }, chainFrom: ['biblioteca'] }
 ]
 
-// Le carte Grigie di Epoca II hanno lo stesso nome di quelle di Epoca I
-// (stesso edificio, seconda copia nel mazzo successivo) — helper separato
-// per chiarezza sull'id univoco.
-function greyFixed2Age(id, name, resource, minPlayers) {
-  return { id, name, age: 2, color: 'grey', minPlayers, cost: {}, effect: { kind: 'produce_fixed', value: resource } }
+// ============================================================
+// SOGLIE ESATTE DI GIOCATORI PER OGNI COPIA FISICA — confermate
+// dall'utente contro il mazzo fisico (25/07). Ogni carta del gioco
+// reale ha 1, 2 o 3 copie fisiche, ciascuna utilizzabile solo a
+// partire da un certo numero minimo di giocatori — è così che il
+// mazzo scala restando sempre esattamente 7 carte a giocatore.
+// Il totale torna esattamente con quanto dichiarato nel regolamento
+// (49 carte Epoca I + 49 Epoca II + 50 Epoca III = 148), quindi questi
+// dati sono considerati ALTA CONFIDENZA.
+// Chiave: id della carta base definita sopra. Valore: elenco di TUTTE
+// le soglie a cui esiste una copia (la prima sostituisce il
+// minPlayers originale, le successive generano copie aggiuntive).
+// ============================================================
+const EXACT_THRESHOLDS = {
+  // --- Epoca I ---
+  'cantiere-abbattimento': [3, 4],
+  'cava-pietra': [3, 5],
+  'bacino-argilla': [3, 5],
+  'filone-minerario': [3, 4],
+  vivaio: [6],
+  scavi: [4],
+  'fossa-argilla': [3],
+  'deposito-legname': [3],
+  giacimento: [5],
+  miniera: [6],
+  'vetreria-1': [3, 6],
+  'stamperia-1': [3, 6],
+  'filanda-1': [3, 6],
+  pozzo: [4, 7],
+  bagni: [3, 7],
+  altare: [3, 5],
+  teatro: [3, 6],
+  taverna: [4, 5, 7],
+  mercato: [3, 6],
+  'stazione-ovest': [3, 7],
+  'stazione-est': [3, 7],
+  palizzata: [3, 7],
+  caserma: [3, 5],
+  'torre-guardia': [3, 4],
+  farmacia: [3, 5],
+  opificio: [3, 7],
+  scrittorio: [3, 4],
+  // --- Epoca II ---
+  segheria: [3, 4],
+  tagliapietre: [3, 4],
+  mattonificio: [3, 4],
+  fonderia: [3, 4],
+  'vetreria-2': [3, 5],
+  'stamperia-2': [3, 5],
+  'filanda-2': [3, 5],
+  statua: [3, 7],
+  acquedotto: [3, 7],
+  tempio: [3, 6],
+  tribunale: [3, 5],
+  caravanserraglio: [3, 5, 6],
+  foro: [3, 6, 7],
+  vigneto: [3, 6],
+  bazar: [4, 7],
+  scuderie: [3, 5],
+  'poligono-tiro': [3, 6],
+  mura: [3, 7],
+  'zona-addestramento': [4, 6, 7],
+  ambulatorio: [3, 4],
+  laboratorio: [3, 5],
+  biblioteca: [3, 6],
+  scuola: [3, 7],
+  // --- Epoca III ---
+  pantheon: [3, 6],
+  giardini: [3, 4],
+  municipio: [3, 6],
+  palazzo: [3, 7],
+  senato: [3, 5],
+  faro: [3, 6],
+  porto: [3, 4],
+  'camera-commercio': [4, 6],
+  arena: [3, 5],
+  'palestra-gladiatoria': [5, 7],
+  castra: [4, 7],
+  fortificazioni: [3, 7],
+  circo: [4, 6],
+  arsenale: [3, 5],
+  'opificio-assedio': [3, 5],
+  loggia: [3, 6],
+  osservatorio: [3, 7],
+  studio: [3, 7],
+  accademia: [3, 5],
+  universita: [3, 4]
 }
+
+// Espande ogni carta base nelle sue copie reali secondo EXACT_THRESHOLDS
+// (o la lascia con il suo minPlayers originale se non è in tabella —
+// non dovrebbe succedere per le 70 carte non-Gilda, è solo un fallback
+// di sicurezza).
+function expandThresholds(baseCards) {
+  const out = []
+  for (const card of baseCards) {
+    const thresholds = EXACT_THRESHOLDS[card.id] || [card.minPlayers]
+    thresholds.forEach((minPlayers, i) => {
+      if (i === 0) {
+        out.push({ ...card, minPlayers })
+      } else {
+        // Copie successive alla prima: id univoco, nessuna concatenazione
+        // propria (nel gioco fisico la concatenazione è una proprietà
+        // dell'edificio, non della singola copia — averla su una sola
+        // copia della carta è già sufficiente perché l'effetto valga).
+        out.push({ ...card, id: `${card.id}-x${minPlayers}`, minPlayers, chainFrom: undefined, chainTo: undefined })
+      }
+    })
+  }
+  return out
+}
+
+export const CARDS = expandThresholds(BASE_CARDS)
 
 export const CARDS_BY_ID = Object.fromEntries(CARDS.map((c) => [c.id, c]))
 
