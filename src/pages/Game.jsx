@@ -1046,7 +1046,7 @@ export default function Game({ profile }) {
             )}
 
             {/* ---- Stadi Meraviglia: una colonna per stadio ---- */}
-            <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
               {side?.stages.map((s, i) => {
                 const built = i < p.wonder_stages_built
                 return (
@@ -1058,23 +1058,22 @@ export default function Game({ profile }) {
                       flexDirection: 'column',
                       alignItems: 'center',
                       textAlign: 'center',
-                      gap: 2,
+                      gap: 3,
                       background: built ? '#e9dfc8' : '#fff',
                       border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
                       borderRadius: 6,
-                      padding: '4px 2px',
+                      padding: '6px 2px',
                       opacity: built ? 1 : 0.65,
                       fontWeight: built ? 700 : 400,
                       fontSize: '0.68rem'
                     }}
                   >
+                    <div>{wonderStageLabel(s)}</div>
+                    <div>{costLabel(s.cost)}</div>
                     <div>
                       {built ? '🏛️ ' : ''}
                       {STAGE_EMOJI[i + 1] || i + 1}
                     </div>
-                    <div>{costLabel(s.cost)}</div>
-                    <div>→</div>
-                    <div>{wonderStageLabel(s)}</div>
                   </div>
                 )
               })}
@@ -1241,7 +1240,7 @@ export default function Game({ profile }) {
 
   return (
     <div style={page}>
-      <div style={{ ...cardWide, width: 980 }}>
+      <div style={{ ...cardWide, width: 1600 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <h1 style={{ ...title, margin: 0 }}>
             Epoca {AGE_ROMAN[game.age]} · Turno {game.turn_number}/6
@@ -1258,7 +1257,7 @@ export default function Game({ profile }) {
 
         <div style={{ display: 'flex', gap: 0, margin: '10px 0 16px', alignItems: 'stretch' }}>
           {/* Colonna sinistra: il tuo pannello */}
-          <div style={{ flex: '0 0 340px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             {renderOnePlayer(myPlayer)}
           </div>
 
