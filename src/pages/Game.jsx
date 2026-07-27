@@ -831,9 +831,9 @@ export default function Game({ profile }) {
   if (!game || !myPlayer) return <Loader message="Carico la partita..." />
 
   // Estratto in funzione perché serve sia durante il turno di gioco sia
-  // nella revisione della plancia a partita conclusa (vedi schermata finale).
-  function renderPlayerPanels() {
-    return orderedPlayers.map((p) => {
+  // nella revisione della plancia a partita conclusa (vedi schermata finale),
+  // e per poter disporre "io" e gli avversari diversamente sullo schermo.
+  function renderOnePlayer(p) {
       const wonder = WONDERS[p.wonder_id]
       const side = wonder?.sides[p.wonder_side]
       const cardsByColor = {}
@@ -860,19 +860,9 @@ export default function Game({ profile }) {
             background: '#fff'
           }}
         >
-          <div
-            onClick={() =>
-              setExpandedPlayerIds((prev) => {
-                const next = new Set(prev ?? [myPlayer.id])
-                if (next.has(p.id)) next.delete(p.id)
-                else next.add(p.id)
-                return next
-              })
-            }
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6, cursor: 'pointer' }}
-          >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6 }}>
             <strong>
-              {isExpanded ? '▾' : '▸'} {p.nickname} {game.status === 'playing' ? (p.ready_this_turn ? '✅' : '⏳') : ''}
+              {p.nickname} {game.status === 'playing' ? (p.ready_this_turn ? '✅' : '⏳') : ''}
             </strong>
           </div>
 
@@ -892,14 +882,18 @@ export default function Game({ profile }) {
                 marginTop: 6
               }}
             >
-              <span>🛡️ Militari {live.military} (⚔️{militaryStrength})</span>
-              <span>💰 Tesoro {live.treasury} (🪙{p.coins})</span>
-              <span>🏛️ Meraviglia {live.wonder}</span>
-              <span>🔵 Blu {live.blue}</span>
-              <span>🟡 Gialle {live.yellow}</span>
-              <span>🟢 Verdi {live.green}</span>
-              <span>🟣 Viola {live.purple}</span>
-              <span style={{ fontWeight: 700, color: '#3d3527', marginLeft: 'auto' }}>{live.total} 🏆</span>
+              <span>
+                🛡️{live.military}(⚔️{militaryStrength})
+              </span>
+              <span>
+                💰{live.treasury}(🪙{p.coins})
+              </span>
+              <span>🏛️{live.wonder}</span>
+              <span>🔵{live.blue}</span>
+              <span>🟡{live.yellow}</span>
+              <span>🟢{live.green}</span>
+              <span>🟣{live.purple}</span>
+              <span style={{ fontWeight: 700, color: '#3d3527', marginLeft: 'auto' }}>{live.total}🏆</span>
             </div>
           )}
 
@@ -921,18 +915,8 @@ export default function Game({ profile }) {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.72rem', color: '#5a5142', marginTop: 6 }}>
-              <div title="Numero di carte per colore — utile per le Gilde che contano le carte dei vicini">
-                <span style={{ color: '#a89b86' }}>🎨 Carte: </span>
-                {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple'].map((color) => (
-                  <span key={color} style={{ marginRight: 6 }}>
-                    {COLOR_LABEL[color]}
-                    {(cardsByColor[color] || []).length}
-                  </span>
-                ))}
-              </div>
-
               <div title="Risorse fisse prodotte a ogni turno">
-                <span style={{ color: '#a89b86' }}>📦 Produzione: </span>
+                <span style={{ color: '#a89b86' }}>Produzione: </span>
                 {Object.entries(production.fixed).filter(([, n]) => n > 0).length === 0 ? (
                   <span>—</span>
                 ) : (
@@ -960,26 +944,56 @@ export default function Game({ profile }) {
 
               {trade && (
                 <div title="Sconti commercio attivi: ◄ vicino sinistro, ► destro, ↔ entrambi">
-                  <span style={{ color: '#a89b86' }}>💱 Commercio: </span>
+                  <span style={{ color: '#a89b86' }}>Commercio: </span>
                   {trade}
                 </div>
               )}
 
               {(science.fixed.compass > 0 || science.fixed.gear > 0 || science.fixed.tablet > 0 || science.choices > 0) && (
                 <div title="Simboli scientifici accumulati finora (i punti si calcolano solo a fine partita)">
-                  <span style={{ color: '#a89b86' }}>🔬 Scienza: </span>
-                  <span style={{ marginRight: 6 }}>
-                    {SCIENCE_ICON.compass}×{science.fixed.compass}
-                  </span>
-                  <span style={{ marginRight: 6 }}>
-                    {SCIENCE_ICON.gear}×{science.fixed.gear}
-                  </span>
-                  <span style={{ marginRight: 6 }}>
-                    {SCIENCE_ICON.tablet}×{science.fixed.tablet}
-                  </span>
+                  <span style={{ color: '#a89b86' }}>Scienza: </span>
+                  {science.fixed.compass > 0 && (
+                    <span style={{ marginRight: 6 }}>
+                      {SCIENCE_ICON.compass}×{science.fixed.compass}
+                    </span>
+                  )}
+                  {science.fixed.gear > 0 && (
+                    <span style={{ marginRight: 6 }}>
+                      {SCIENCE_ICON.gear}×{science.fixed.gear}
+                    </span>
+                  )}
+                  {science.fixed.tablet > 0 && (
+                    <span style={{ marginRight: 6 }}>
+                      {SCIENCE_ICON.tablet}×{science.fixed.tablet}
+                    </span>
+                  )}
                   {science.choices > 0 && <span>+{science.choices} a scelta</span>}
                 </div>
               )}
+
+              <div
+                onClick={() =>
+                  setExpandedPlayerIds((prev) => {
+                    const next = new Set(prev ?? [myPlayer.id])
+                    if (next.has(p.id)) next.delete(p.id)
+                    else next.add(p.id)
+                    return next
+                  })
+                }
+                style={{ cursor: 'pointer' }}
+                title="Numero di carte per colore — utile per le Gilde che contano le carte dei vicini. Clic per vedere le carte per esteso."
+              >
+                <span style={{ color: '#a89b86' }}>{isExpanded ? '▾' : '▸'} Carte: </span>
+                {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
+                  .filter((color) => (cardsByColor[color] || []).length > 0)
+                  .map((color) => (
+                    <span key={color} style={{ marginRight: 6 }}>
+                      {COLOR_LABEL[color]}
+                      {cardsByColor[color].length}
+                    </span>
+                  ))}
+                {Object.keys(cardsByColor).length === 0 && <span>—</span>}
+              </div>
             </div>
 
             {isExpanded && (
@@ -1068,7 +1082,10 @@ export default function Game({ profile }) {
           </div>
         </div>
       )
-    })
+  }
+
+  function renderPlayerPanels() {
+    return orderedPlayers.map(renderOnePlayer)
   }
 
   // ============================================================
@@ -1239,8 +1256,10 @@ export default function Game({ profile }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '10px 0 16px' }}>
-          {renderPlayerPanels()}
+        <div style={{ margin: '10px 0 6px' }}>{renderOnePlayer(myPlayer)}</div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '0 0 16px' }}>
+          {orderedPlayers.filter((p) => p.id !== myPlayer.id).map(renderOnePlayer)}
         </div>
 
         {iAmReady ? (
