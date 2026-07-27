@@ -108,15 +108,17 @@ davvero anti-cheat servirebbe una Edge Function con service role — fuori scope
 - Risoluzione conflitti militari a fine Epoca, punteggio finale completo nell'ordine ufficiale
   (Militari → Tesoro → Meraviglia → Blu → Gialle → Verdi con simboli a scelta ottimizzati →
   Viola/Gilde), classifica finale.
+- **Tutti gli effetti speciali di carte e Meraviglie**, incluse le monete immediate alla
+  costruzione per Vigneto/Bazar/Faro/Porto/Camera di Commercio/Palestra Gladiatoria/Arena, e le
+  4 abilità Meraviglia più complesse: "costruisci gratis dalla mano" (Babilonia lato B, 1
+  volta/Epoca), "gioca l'ultima carta invece di scartarla" (Olympia lato A), "costruisci gratis
+  dagli scarti" (Halikarnassós, con pila degli scarti condivisa tracciata in tempo reale), "copia
+  una Gilda di un vicino a fine partita" (Olympia lato B).
 
 ## Cosa manca / è semplificato (prossimi step)
 
 - **Interfaccia**: essenziale (liste e pulsanti), non ancora "a carte" visivamente come le foto
   allegate — buona base per iterare insieme.
-- **Effetti speciali non ancora interattivi**: "costruisci gratis dagli scarti" (Halikarnassós),
-  "copia una Gilda di un vicino" (Olympia lato B), "gioca l'ultima carta invece di scartarla"
-  (Olympia lato A) sono codificati nei dati ma non hanno ancora un'interfaccia per essere
-  scelti/attivati in partita.
 - **Validazione server-side**: vedi limite noto sopra.
 - **Variante 2 giocatori (Città Libera)**: esclusa da questa v1 su tua indicazione.
 

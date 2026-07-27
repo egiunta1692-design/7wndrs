@@ -79,6 +79,7 @@ create table if not exists players (
   ready_this_turn boolean not null default false,     -- gli altri vedono SOLO questo booleano, mai la carta scelta (fase "ho scelto" vs "sto ancora scegliendo")
   turn_applied int not null default 0,                -- ultimo numero di turno (assoluto entro l'Epoca) per cui questo giocatore ha GIA' applicato la propria azione — segnale robusto anti-race per capire quando TUTTI hanno finito, indipendente dai ritardi di realtime (vedi Game.jsx)
   final_score jsonb,
+  free_build_used_age int,                            -- ultima Epoca in cui e' stato usato il potere "costruisci gratis dalla mano" (Babilonia lato B, 1 volta/Epoca) — null se mai usato
   unique (game_id, user_id)
 );
 

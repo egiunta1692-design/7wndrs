@@ -338,6 +338,45 @@ export function applyAction(action, player, leftNeighbor, rightNeighbor) {
 // rileggere i vicini in quel momento — così il risultato non dipende
 // dall'ordine con cui i client si risolvono.
 // ------------------------------------------------------------
+// Conta le carte di un colore già costruite (usato per le monete
+// immediate/PV di Vigneto, Bazar, Faro, Porto, Camera di Commercio,
+// Palestra Gladiatoria).
+function colorCountBuilt(player, color) {
+  return (player.built_cards || []).filter((id) => getCardData(id)?.color === color).length
+}
+
+// Monete guadagnate IMMEDIATAMENTE alla costruzione di questa carta
+// (oltre all'eventuale coinCost del "coins_on_build" già gestito).
+// Copre: coins_per_color (Vigneto/Bazar, contano se stesso + vicini),
+// per_color_coins_and_vp (Faro/Porto/Camera di Commercio/Palestra
+// Gladiatoria, contano solo la propria città), coins_and_vp_per_wonder_stage
+// (Arena, per ogni stadio Meraviglia già costruito).
+function computeImmediateBuildCoins(card, player, leftNeighbor, rightNeighbor) {
+  const e = card?.effect
+  if (!e) return 0
+  if (e.kind === 'coins_on_build') return e.value
+  if (e.kind === 'coins_per_color') {
+    const { color, coinsEach, scope } = e.value
+    let count = colorCountBuilt(player, color)
+    if (color === card.color) count += 1 // la carta stessa, non ancora in built_cards a questo punto
+    if (scope === 'self_and_neighbors') {
+      if (leftNeighbor) count += colorCountBuilt(leftNeighbor, color)
+      if (rightNeighbor) count += colorCountBuilt(rightNeighbor, color)
+    }
+    return coinsEach * count
+  }
+  if (e.kind === 'per_color_coins_and_vp') {
+    const { color, coinsEach, includeSelf } = e.value
+    let count = colorCountBuilt(player, color)
+    if (includeSelf) count += 1
+    return coinsEach * count
+  }
+  if (e.kind === 'coins_and_vp_per_wonder_stage') {
+    return e.value.coinsEach * (player.wonder_stages_built || 0)
+  }
+  return 0
+}
+
 export function prepareAction(action, cardId, player, leftNeighbor, rightNeighbor, preference = null) {
   if (action === 'discard') {
     return { action: 'discard', cardId, coinCost: 0, bonusCoins: 3, purchases: [] }
@@ -346,7 +385,7 @@ export function prepareAction(action, cardId, player, leftNeighbor, rightNeighbo
     const check = canBuildCard(cardId, player, leftNeighbor, rightNeighbor, preference)
     if (!check.possible) throw new Error(check.reason)
     const card = getCardData(cardId)
-    const bonusCoins = card?.effect?.kind === 'coins_on_build' ? card.effect.value : 0
+    const bonusCoins = computeImmediateBuildCoins(card, player, leftNeighbor, rightNeighbor)
     return { action: 'build', cardId, coinCost: check.coinCost || 0, bonusCoins, purchases: check.purchases || [] }
   }
   if (action === 'wonder') {
@@ -372,4 +411,68 @@ export function applyPreparedAction(prepared, player) {
   if (prepared.action === 'build') next.built_cards.push(prepared.cardId)
   if (prepared.action === 'wonder') next.wonder_stages_built = prepared.stageIndex + 1
   return next
+}
+
+// Applica un pending_action che può essere singolo (come sopra) OPPURE
+// un "bundle" di due azioni (vedi prepareLastTurnBundle) — usata sempre
+// al posto di applyPreparedAction nella risoluzione del turno, così
+// gestisce entrambi i casi in modo trasparente.
+export function applyPreparedActionOrBundle(prepared, player) {
+  if (prepared?.bundle) {
+    const afterPrimary = applyPreparedAction(prepared.primary, player)
+    return applyPreparedAction(prepared.bonus, afterPrimary)
+  }
+  return applyPreparedAction(prepared, player)
+}
+
+// true se il giocatore ha già costruito uno stadio Meraviglia con
+// questo effectKind (es. 'play_last_card', 'build_from_hand_free').
+export function hasWonderStageAbility(player, effectKind) {
+  const side = getWonderStage(player)
+  if (!side) return false
+  return side.stages.some((s, i) => i < (player.wonder_stages_built || 0) && s.effectKind === effectKind)
+}
+
+// Prepara IN UN COLPO SOLO la carta "principale" del turno 6 più quella
+// "bonus" resa giocabile da Olympia lato A ("puoi giocare l'ultima carta
+// di ogni Epoca invece di scartarla"). Il regolamento la considera "un
+// nuovo turno": qui infatti si valuta il bonus sullo stato ottenuto
+// DOPO aver applicato la carta principale (la produzione si "ricarica").
+export function prepareLastTurnBundle(primaryAction, primaryCardId, bonusAction, bonusCardId, player, leftNeighbor, rightNeighbor, preference) {
+  const primary = prepareAction(primaryAction, primaryCardId, player, leftNeighbor, rightNeighbor, preference)
+  const afterPrimary = applyPreparedAction(primary, player)
+  const bonus = prepareAction(bonusAction, bonusCardId, afterPrimary, leftNeighbor, rightNeighbor, preference)
+  return { bundle: true, kind: 'last_card', primary, bonus }
+}
+
+// Costruisce una carta ignorando completamente il suo costo (potere
+// "costruisci gratis dalla mano" di Babilonia lato B) — resta comunque
+// vietato costruire due copie dello stesso edificio, e gli eventuali
+// effetti "monete subito" della carta si applicano normalmente.
+export function prepareFreeBuild(cardId, player, leftNeighbor, rightNeighbor) {
+  const card = getCardData(cardId)
+  if (!card) throw new Error('Carta sconosciuta')
+  if ((player.built_cards || []).includes(cardId)) throw new Error('Edificio già costruito')
+  const bonusCoins = computeImmediateBuildCoins(card, player, leftNeighbor, rightNeighbor)
+  return { action: 'build', cardId, coinCost: 0, bonusCoins, purchases: [] }
+}
+
+// Come prepareLastTurnBundle, ma per il potere di Babilonia: la carta
+// "bonus" è sempre gratuita (nessun controllo di costo/risorse), a
+// differenza di Olympia dove la carta bonus segue le regole normali.
+export function prepareFreeBuildBundle(primaryAction, primaryCardId, freeBuildCardId, player, leftNeighbor, rightNeighbor, preference) {
+  const primary = prepareAction(primaryAction, primaryCardId, player, leftNeighbor, rightNeighbor, preference)
+  const afterPrimary = applyPreparedAction(primary, player)
+  const bonus = prepareFreeBuild(freeBuildCardId, afterPrimary, leftNeighbor, rightNeighbor)
+  return { bundle: true, kind: 'free_build', primary, bonus }
+}
+
+// Come prepareLastTurnBundle, ma per il potere di Halikarnassós: la
+// carta "bonus" non viene dalla mano ma dalla pila degli scarti
+// condivisa, ed è sempre gratuita (nessun controllo di costo/risorse).
+export function prepareDiscardBuildBundle(primaryAction, primaryCardId, discardCardId, player, leftNeighbor, rightNeighbor, preference) {
+  const primary = prepareAction(primaryAction, primaryCardId, player, leftNeighbor, rightNeighbor, preference)
+  const afterPrimary = applyPreparedAction(primary, player)
+  const bonus = prepareFreeBuild(discardCardId, afterPrimary, leftNeighbor, rightNeighbor)
+  return { bundle: true, kind: 'discard_build', primary, bonus, discardCardId }
 }

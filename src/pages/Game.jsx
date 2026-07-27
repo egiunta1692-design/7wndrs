@@ -11,7 +11,11 @@ import {
   rightNeighborSeat,
   passRecipientSeat,
   prepareAction,
-  applyPreparedAction,
+  prepareLastTurnBundle,
+  prepareFreeBuildBundle,
+  prepareDiscardBuildBundle,
+  applyPreparedActionOrBundle,
+  hasWonderStageAbility,
   resolveMilitaryConflict,
   computeMilitaryStrength,
   computeProduction,
@@ -26,6 +30,7 @@ const COLOR_LABEL = { brown: '🟤', grey: '⚪', blue: '🔵', yellow: '🟡', 
 const RESOURCE_ICON = { clay: '🧱', stone: '🪨', ore: '⛏️', wood: '🪵', glass: '🔷', loom: '🧵', papyrus: '📜' }
 const RESOURCE_NAME = { clay: 'Argilla', stone: 'Pietra', ore: 'Minerale', wood: 'Legno', glass: 'Vetro', loom: 'Tessuto', papyrus: 'Papiro' }
 const AGE_ROMAN = { 1: 'Ⅰ', 2: 'Ⅱ', 3: 'Ⅲ' }
+const STAGE_EMOJI = { 1: '1️⃣', 2: '2️⃣', 3: '3️⃣', 4: '4️⃣' }
 const SCIENCE_ICON = { compass: '🧭', gear: '⚙️', tablet: '📝' }
 const COLOR_NAME = { brown: 'Marrone', grey: 'Grigia', blue: 'Blu', yellow: 'Gialla', red: 'Rossa', green: 'Verde', purple: 'Viola' }
 
@@ -258,6 +263,8 @@ export default function Game({ profile }) {
   const [error, setError] = useState(null)
   const [selectedCardId, setSelectedCardId] = useState(null)
   const [buyPreference, setBuyPreference] = useState(null)
+  const [bundlePrimaryChoice, setBundlePrimaryChoice] = useState(null) // { cardId, action } — Olympia lato A o Babilonia lato B
+  const [discardPicker, setDiscardPicker] = useState(null) // { cardId, action } della carta principale, in attesa di scelta dagli scarti (Halikarnassós)
   const [showBoard, setShowBoard] = useState(false)
   const [expandedPlayerId, setExpandedPlayerId] = useState(null)
   const [nowTick, setNowTick] = useState(Date.now())
@@ -455,19 +462,30 @@ export default function Game({ profile }) {
   // guardando lo stato attuale dei vicini, cosi' l'applicazione
   // successiva non dipende piu' da loro (vedi prepareAction).
   // ============================================================
-  async function chooseAction(cardId, action, preference = null) {
+  async function chooseAction(cardId, action, preference = null, bundleWith = null, bundleType = 'last_card') {
     setError(null)
     try {
-      const prepared = prepareAction(action, cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
-      const remainingHand = (myHand.hand || []).filter((id) => id !== cardId)
+      let prepared
+      if (bundleWith && bundleType === 'free_build') {
+        prepared = prepareFreeBuildBundle(action, cardId, bundleWith.cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
+      } else if (bundleWith && bundleType === 'discard_build') {
+        prepared = prepareDiscardBuildBundle(action, cardId, bundleWith.cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
+      } else if (bundleWith) {
+        prepared = prepareLastTurnBundle(action, cardId, bundleWith.action, bundleWith.cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
+      } else {
+        prepared = prepareAction(action, cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
+      }
+      const playedCardIds = bundleWith ? [cardId, bundleWith.cardId] : [cardId]
+      const remainingHand = (myHand.hand || []).filter((id) => !playedCardIds.includes(id))
       const isLastTurnOfAge = game.turn_number >= 6
+      const allPurchases = bundleWith ? [...(prepared.primary.purchases || []), ...(prepared.bonus.purchases || [])] : prepared.purchases || []
 
       // Traduce il piano d'acquisto (chi/quanto) in importi dovuti ai
       // vicini reali, indirizzati alla loro user_id: ognuno di loro se
       // li accrediterà da solo durante la risoluzione del proprio turno
       // (vedi sotto) — nessun client scrive mai il saldo di un altro.
       const paymentsOut = {}
-      for (const purchase of prepared.purchases || []) {
+      for (const purchase of allPurchases) {
         const neighbor = purchase.neighbor === 'left' ? leftNeighbor : rightNeighbor
         if (!neighbor) continue
         const key = neighbor.user_id
@@ -503,6 +521,7 @@ export default function Game({ profile }) {
       await supabase.from('players').update({ ready_this_turn: true }).eq('id', myPlayer.id)
       setSelectedCardId(null)
       setBuyPreference(null)
+      setLastTurnPrimaryChoice(null)
     } catch (err) {
       setError(err.message)
     }
@@ -555,7 +574,7 @@ export default function Game({ profile }) {
         if (freshPlayerError) console.error('[resolveTurn] errore rilettura giocatore proprio:', freshPlayerError)
         const baselinePlayer = freshPlayer || myPlayer
 
-        const updatedPublic = applyPreparedAction(prepared, baselinePlayer)
+        const updatedPublic = applyPreparedActionOrBundle(prepared, baselinePlayer)
         const isLastTurnOfAge = game.turn_number >= 6
 
         // Incassa eventuali pagamenti che i vicini ci devono per risorse
@@ -601,7 +620,8 @@ export default function Game({ profile }) {
             built_cards: updatedPublic.built_cards,
             wonder_stages_built: updatedPublic.wonder_stages_built,
             ready_this_turn: false,
-            turn_applied: game.turn_number
+            turn_applied: game.turn_number,
+            ...(prepared?.kind === 'free_build' ? { free_build_used_age: game.age } : {})
           })
           .eq('id', myPlayer.id)
           .lt('turn_applied', game.turn_number)
@@ -609,6 +629,28 @@ export default function Game({ profile }) {
         if (claimError) console.error('[resolveTurn] errore applicazione azione:', claimError)
 
         if (claimed && claimed.length > 0) {
+          // Aggiorna la pila degli scarti condivisa (games.discard_pile):
+          // aggiunge le carte scartate con l'azione 'discard' questo
+          // turno, e rimuove quella eventualmente pescata dal potere di
+          // Halikarnassós ("costruisci gratis dagli scarti"). Scrittura
+          // "best effort" in lettura-modifica-scrittura sulla riga
+          // condivisa: in rarissimi casi di scarti simultanei di più
+          // giocatori nello stesso istante una voce potrebbe non
+          // comparire, accettabile per questa funzione accessoria (non
+          // altera mai lo stato di gioco di nessun giocatore).
+          const discardedIds = []
+          if (prepared.action === 'discard') discardedIds.push(prepared.cardId)
+          if (prepared.primary?.action === 'discard') discardedIds.push(prepared.primary.cardId)
+          if (prepared.bonus?.action === 'discard') discardedIds.push(prepared.bonus.cardId)
+          const pickedFromDiscard = prepared.kind === 'discard_build' ? prepared.discardCardId : null
+          if (discardedIds.length > 0 || pickedFromDiscard) {
+            const { data: freshGame } = await supabase.from('games').select('discard_pile').eq('id', gameId).single()
+            let pile = freshGame?.discard_pile || []
+            if (pickedFromDiscard) pile = pile.filter((id) => id !== pickedFromDiscard)
+            pile = [...pile, ...discardedIds]
+            await supabase.from('games').update({ discard_pile: pile }).eq('id', gameId)
+          }
+
           // Aggiornamento OTTIMISTICO immediato: questo client conosce già
           // con certezza il risultato appena scritto, non ha senso che
           // aspetti l'eco realtime per aggiornare la propria interfaccia
@@ -949,7 +991,7 @@ export default function Game({ profile }) {
                           fontSize: '0.72rem'
                         }}
                       >
-                        {built ? '🏛️' : '▫️'} {i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
+                        {built ? '🏛️' : '▫️'} {STAGE_EMOJI[i + 1] || i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
                       </div>
                     )
                   })}
@@ -1048,12 +1090,12 @@ export default function Game({ profile }) {
                         <button
                           style={pillButton}
                           onClick={() => chooseWonder(id, side)}
-                          title={WONDERS[id].sides[side].stages.map((s, i) => `Stadio ${i + 1}: ${costLabel(s.cost)} → ${wonderStageLabel(s)}`).join(' | ')}
+                          title={WONDERS[id].sides[side].stages.map((s, i) => `Stadio ${STAGE_EMOJI[i + 1] || i + 1}: ${costLabel(s.cost)} → ${wonderStageLabel(s)}`).join(' | ')}
                         >
                           Lato {side}
                         </button>
                         <span style={{ fontSize: '0.7rem', color: '#5a5142', marginLeft: 6 }}>
-                          {WONDERS[id].sides[side].stages.map((s, i) => `${i + 1}: ${costLabel(s.cost)}→${wonderStageLabel(s)}`).join(' · ')}
+                          {WONDERS[id].sides[side].stages.map((s, i) => `${STAGE_EMOJI[i + 1] || i + 1}: ${costLabel(s.cost)}→${wonderStageLabel(s)}`).join(' · ')}
                         </span>
                       </div>
                     ))}
@@ -1152,6 +1194,15 @@ export default function Game({ profile }) {
   const myWonderSide = WONDERS[myPlayer.wonder_id]?.sides[myPlayer.wonder_side]
   const myNextStage = myWonderSide?.stages[myPlayer.wonder_stages_built || 0]
   const nextWonderStageLabel = myNextStage ? `${costLabel(myNextStage.cost)} → ${wonderStageLabel(myNextStage)}` : null
+  const isLastTurnOfAge = game.turn_number >= 6
+  const iCanPlayLastCard = isLastTurnOfAge && hasWonderStageAbility(myPlayer, 'play_last_card') && hand.length === 2
+  const iCanFreeBuild =
+    !isLastTurnOfAge && hasWonderStageAbility(myPlayer, 'build_from_hand_free') && myPlayer.free_build_used_age !== game.age && hand.length >= 2
+  const bundleMode = iCanPlayLastCard ? 'last_card' : iCanFreeBuild ? 'free_build' : null
+  const nextStageGivesDiscardBuild = myNextStage?.effectKind === 'build_from_discard'
+  // In modalità bundle, dopo la prima scelta si mostra solo la carta
+  // (o le carte) rimanenti per la seconda scelta.
+  const visibleHand = bundleMode && bundlePrimaryChoice ? hand.filter((id) => id !== bundlePrimaryChoice.cardId) : hand
 
 
   return (
@@ -1177,11 +1228,69 @@ export default function Game({ profile }) {
 
         {iAmReady ? (
           <p style={{ textAlign: 'center', color: '#5a5142' }}>Hai scelto la tua carta — aspetto gli altri giocatori...</p>
+        ) : discardPicker ? (
+          <>
+            <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>🏛️ Halikarnassós: scegli una carta dagli scarti da costruire gratis</p>
+            <p style={{ fontSize: '0.78rem', color: '#8a6a48', marginTop: -6 }}>
+              (oppure salta: costruisci comunque lo stadio Meraviglia senza usare il potere)
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {(game.discard_pile || [])
+                .filter((id) => !(myPlayer.built_cards || []).includes(id))
+                .map((discardCardId) => {
+                  const card = getCardData(discardCardId)
+                  if (!card) return null
+                  return (
+                    <div
+                      key={discardCardId}
+                      onClick={() =>
+                        chooseAction(discardPicker.cardId, discardPicker.action, buyPreference, { cardId: discardCardId }, 'discard_build').then(() =>
+                          setDiscardPicker(null)
+                        )
+                      }
+                      style={{ border: '1px solid #e4ddcc', borderRadius: 10, padding: 10, width: 190, cursor: 'pointer', background: '#fff' }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
+                        {COLOR_LABEL[card.color]} {card.name}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 2 }}>{effectLabel(card)}</div>
+                    </div>
+                  )
+                })}
+              {(game.discard_pile || []).filter((id) => !(myPlayer.built_cards || []).includes(id)).length === 0 && (
+                <p style={{ color: '#a89b86' }}>La pila degli scarti è vuota per ora.</p>
+              )}
+            </div>
+            <button
+              style={{ ...secondaryButton, marginTop: 10 }}
+              onClick={() => {
+                const p = discardPicker
+                setDiscardPicker(null)
+                chooseAction(p.cardId, p.action, buyPreference)
+              }}
+            >
+              Salta, costruisci solo lo stadio
+            </button>
+          </>
         ) : (
           <>
             <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>La tua mano:</p>
+            {bundleMode && (
+              <p style={{ fontSize: '0.78rem', color: '#8a6a48', marginTop: -6 }}>
+                {bundleMode === 'last_card' ? (
+                  <>🏛️ Grazie a Olympia puoi giocare anche l'ultima carta invece di scartarla.</>
+                ) : (
+                  <>🏛️ Grazie a Babilonia puoi costruire gratis una carta extra questo turno (1 volta/Epoca).</>
+                )}{' '}
+                {bundlePrimaryChoice
+                  ? bundleMode === 'last_card'
+                    ? 'Scegli ora cosa fare con la seconda carta.'
+                    : "Scegli ora quale carta costruire gratis (o non usare il potere: risolvi normalmente l'altra)."
+                  : "Scegli prima cosa fare con una carta, poi ti chiederò anche per l'altra."}
+              </p>
+            )}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {hand.map((cardId) => {
+              {visibleHand.map((cardId) => {
                 const card = getCardData(cardId)
                 if (!card) return null
                 const selected = selectedCardId === cardId
@@ -1239,15 +1348,49 @@ export default function Game({ profile }) {
                             </select>
                           </div>
                         )}
-                        <button style={pillButton} onClick={() => chooseAction(cardId, 'build', buyPreference)}>
-                          🏗️ Costruisci edificio
-                        </button>
-                        <button style={pillButton} onClick={() => chooseAction(cardId, 'wonder', buyPreference)} title={nextWonderStageLabel}>
-                          🏛️ Stadio Meraviglia{nextWonderStageLabel ? ` (${nextWonderStageLabel})` : ''}
-                        </button>
-                        <button style={pillButton} onClick={() => chooseAction(cardId, 'discard')}>
-                          💰 Vendi (+3🪙)
-                        </button>
+                        {bundleMode === 'free_build' && bundlePrimaryChoice ? (
+                          <button style={pillButton} onClick={() => chooseAction(cardId, 'build', null, bundlePrimaryChoice, 'free_build')}>
+                            🏛️ Costruisci GRATIS con Babilonia
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              style={pillButton}
+                              onClick={() =>
+                                bundleMode && !bundlePrimaryChoice
+                                  ? setBundlePrimaryChoice({ cardId, action: 'build' })
+                                  : chooseAction(cardId, 'build', buyPreference, bundlePrimaryChoice, bundleMode)
+                              }
+                            >
+                              🏗️ Costruisci edificio
+                            </button>
+                            <button
+                              style={pillButton}
+                              onClick={() => {
+                                if (nextStageGivesDiscardBuild) {
+                                  setDiscardPicker({ cardId, action: 'wonder' })
+                                } else if (bundleMode && !bundlePrimaryChoice) {
+                                  setBundlePrimaryChoice({ cardId, action: 'wonder' })
+                                } else {
+                                  chooseAction(cardId, 'wonder', buyPreference, bundlePrimaryChoice, bundleMode)
+                                }
+                              }}
+                              title={nextWonderStageLabel}
+                            >
+                              🏛️ Stadio Meraviglia{nextWonderStageLabel ? ` (${nextWonderStageLabel})` : ''}
+                            </button>
+                            <button
+                              style={pillButton}
+                              onClick={() =>
+                                bundleMode && !bundlePrimaryChoice
+                                  ? setBundlePrimaryChoice({ cardId, action: 'discard' })
+                                  : chooseAction(cardId, 'discard', null, bundlePrimaryChoice, bundleMode)
+                              }
+                            >
+                              💰 Vendi (+3🪙)
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

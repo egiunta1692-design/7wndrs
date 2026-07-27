@@ -113,43 +113,67 @@ function scoreGreen(player, guildFreeChoices) {
 }
 
 // --- 7. Viola (Gilde) ---
+// Estratta in funzione indipendente perché serve sia per le Gilde
+// che il giocatore ha costruito da sé, sia per valutare "quanto
+// varrebbe copiare questa Gilda di un vicino" (stadio Meraviglia
+// Olympia lato B, effectKind 'copy_guild').
+function scoreOneGuildCard(card, player, left, right) {
+  switch (card.scoringKind) {
+    case 'per_color_in_neighbors': {
+      const { color, vpEach } = card.scoringValue
+      return vpEach * (colorCount(left, color) + colorCount(right, color))
+    }
+    case 'per_wonder_stage_self_and_neighbors': {
+      const { vpEach } = card.scoringValue
+      return vpEach * ((player.wonder_stages_built || 0) + (left.wonder_stages_built || 0) + (right.wonder_stages_built || 0))
+    }
+    case 'all_wonder_stages_flat': {
+      const side = getWonderStage(player)
+      const totalStages = side ? side.stages.length : 3
+      return (player.wonder_stages_built || 0) >= totalStages ? card.scoringValue.vp : 0
+    }
+    case 'per_brown_grey_purple_self': {
+      const { vpEach } = card.scoringValue
+      return vpEach * (colorCount(player, 'brown') + colorCount(player, 'grey') + colorCount(player, 'purple'))
+    }
+    case 'science_choice':
+      return 0 // gestito a parte come freeChoices extra, vedi scientistsGuildBonus
+    default:
+      return 0
+  }
+}
+
 function scoreGuilds(player, players, index) {
   let vp = 0
   let scientistsGuildBonus = 0
   const { left, right } = neighborsOf(players, index)
+  const ownGuildIds = new Set()
   for (const cardId of player.built_cards || []) {
     const card = getCardData(cardId)
     if (card?.color !== 'purple' || !card.scoringKind) continue
-    switch (card.scoringKind) {
-      case 'per_color_in_neighbors': {
-        const { color, vpEach } = card.scoringValue
-        vp += vpEach * (colorCount(left, color) + colorCount(right, color))
-        break
-      }
-      case 'per_wonder_stage_self_and_neighbors': {
-        const { vpEach } = card.scoringValue
-        vp += vpEach * ((player.wonder_stages_built || 0) + (left.wonder_stages_built || 0) + (right.wonder_stages_built || 0))
-        break
-      }
-      case 'all_wonder_stages_flat': {
-        const side = getWonderStage(player)
-        const totalStages = side ? side.stages.length : 3
-        if ((player.wonder_stages_built || 0) >= totalStages) vp += card.scoringValue.vp
-        break
-      }
-      case 'per_brown_grey_purple_self': {
-        const { vpEach } = card.scoringValue
-        vp += vpEach * (colorCount(player, 'brown') + colorCount(player, 'grey') + colorCount(player, 'purple'))
-        break
-      }
-      case 'science_choice': {
-        scientistsGuildBonus += 1 // gestito dentro scoreGreen come freeChoices extra
-        break
-      }
-      default:
-        break
-    }
+    ownGuildIds.add(card.id)
+    vp += scoreOneGuildCard(card, player, left, right)
+    if (card.scoringKind === 'science_choice') scientistsGuildBonus += 1
   }
+
+  // Stadio Meraviglia "copia una Gilda di un vicino" (Olympia lato B):
+  // a fine partita, sceglie la Gilda dei vicini (che non ha già lui
+  // stesso) che gli varrebbe di più, e la aggiunge al proprio punteggio.
+  const side = getWonderStage(player)
+  const hasCopyGuild = side?.stages.some((s, i) => i < (player.wonder_stages_built || 0) && s.effectKind === 'copy_guild')
+  if (hasCopyGuild) {
+    let bestExtra = 0
+    for (const neighbor of [left, right]) {
+      for (const cardId of neighbor.built_cards || []) {
+        const card = getCardData(cardId)
+        if (card?.color !== 'purple' || !card.scoringKind || ownGuildIds.has(card.id)) continue
+        const value = scoreOneGuildCard(card, player, left, right)
+        if (value > bestExtra) bestExtra = value
+      }
+    }
+    vp += bestExtra
+  }
+
   return { vp, scientistsGuildBonus }
 }
 
