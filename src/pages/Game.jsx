@@ -1256,10 +1256,39 @@ export default function Game({ profile }) {
           </div>
         </div>
 
-        <div style={{ margin: '10px 0 6px' }}>{renderOnePlayer(myPlayer)}</div>
+        <div style={{ display: 'flex', gap: 0, margin: '10px 0 16px', alignItems: 'stretch' }}>
+          {/* Colonna sinistra: il tuo pannello */}
+          <div style={{ flex: '0 0 340px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            {renderOnePlayer(myPlayer)}
+          </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '0 0 16px' }}>
-          {orderedPlayers.filter((p) => p.id !== myPlayer.id).map(renderOnePlayer)}
+          {/* "Spina" verticale continua: rappresenta il giro di vicinato — in
+              alto il vicino destro, in basso il vicino sinistro, e i due
+              estremi si richiudono idealmente su di te per completare il
+              cerchio del tavolo. */}
+          <div style={{ width: 20, position: 'relative', flexShrink: 0 }} title="Linea di vicinato: dall'alto (vicino destro) al basso (vicino sinistro), il cerchio si richiude su di te">
+            <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, background: '#8a6a48', transform: 'translateX(-50%)' }} />
+          </div>
+
+          {/* Colonna destra: avversari in ordine di seggio reale attorno al
+              tavolo, dal tuo vicino destro (in cima) al tuo vicino sinistro
+              (in fondo) — ogni coppia consecutiva è realmente vicina di
+              posto, non solo nell'elenco. */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+            {Array.from({ length: numPlayers - 1 }, (_, i) => seatToPlayer[(mySeat + i + 1) % numPlayers])
+              .filter(Boolean)
+              .map((p, i, arr) => (
+                <div key={p.id} style={{ borderLeft: '3px solid #8a6a48', paddingLeft: 8 }}>
+                  {i === 0 && (
+                    <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700 }}>► tuo vicino destro</div>
+                  )}
+                  {renderOnePlayer(p)}
+                  {i === arr.length - 1 && (
+                    <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700, textAlign: 'right' }}>tuo vicino sinistro ◄</div>
+                  )}
+                </div>
+              ))}
+          </div>
         </div>
 
         {iAmReady ? (
