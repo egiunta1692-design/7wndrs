@@ -414,6 +414,26 @@ export default function Game({ profile }) {
     if (myHand.dealt_age === game.age) return
     dealingRef.current = true
     const hand = dealHandForSeat(deck, mySeat)
+    console.log('[dealHand] tentativo distribuzione — game', gameId, 'seat', mySeat, 'epoca', game.age, 'dimensione mazzo', deck.length, 'carte ottenute', hand.length, hand)
+    if (hand.length !== HAND_SIZE) {
+      // Non dovrebbe mai succedere (il mazzo è garantito abbastanza grande
+      // per il numero di giocatori — vedi controllo in startGame). Se
+      // capita comunque, NON salviamo una mano rotta: meglio segnalarlo
+      // forte e riprovare al prossimo render che rischiare una mano vuota
+      // permanente.
+      console.error('[dealHand] MANO ANOMALA, non salvo — segnalare questo log:', {
+        gameId,
+        mySeat,
+        numPlayers,
+        age: game.age,
+        deckLength: deck.length,
+        handLength: hand.length,
+        turnOrder: game.turn_order,
+        myPlayerId: myPlayer?.id
+      })
+      dealingRef.current = false
+      return
+    }
     const dealtRow = { ...myHand, hand, pending_action: null, outgoing_hand: null, outgoing_hand_for: null, dealt_age: game.age }
     supabase
       .from('player_hands')
@@ -423,6 +443,7 @@ export default function Game({ profile }) {
         if (error) {
           console.error('[dealHand] errore distribuzione mano:', error)
         } else {
+          console.log('[dealHand] distribuzione confermata su database, seat', mySeat, 'carte:', hand)
           setMyHandRows((prev) => prev.map((h) => (h.id === myHand.id ? dealtRow : h)))
         }
         dealingRef.current = false
