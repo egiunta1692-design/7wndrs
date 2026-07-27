@@ -236,7 +236,9 @@ function wonderStageLabel(stage) {
     case 'military':
       return `+${stage.effectValue}⚔️`
     case 'science':
-      return `${stage.effectValue} simbolo/i scientifico/i a scelta 🧭⚙️📝`
+      return stage.effectValue === 1
+        ? `1 simbolo scientifico a scelta 🧭⚙️📝`
+        : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
     case 'trade_discount':
       return `Sconto commercio: ${stage.effectValue.resources.map((r) => RESOURCE_ICON[r]).join(' ')}`
     case 'build_from_hand_free':
