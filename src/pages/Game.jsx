@@ -521,7 +521,7 @@ export default function Game({ profile }) {
       await supabase.from('players').update({ ready_this_turn: true }).eq('id', myPlayer.id)
       setSelectedCardId(null)
       setBuyPreference(null)
-      setLastTurnPrimaryChoice(null)
+      setBundlePrimaryChoice(null)
     } catch (err) {
       setError(err.message)
     }
