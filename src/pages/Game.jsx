@@ -266,7 +266,7 @@ export default function Game({ profile }) {
   const [bundlePrimaryChoice, setBundlePrimaryChoice] = useState(null) // { cardId, action } — Olympia lato A o Babilonia lato B
   const [discardPicker, setDiscardPicker] = useState(null) // { cardId, action } della carta principale, in attesa di scelta dagli scarti (Halikarnassós)
   const [showBoard, setShowBoard] = useState(false)
-  const [expandedPlayerId, setExpandedPlayerId] = useState(null)
+  const [expandedPlayerIds, setExpandedPlayerIds] = useState(null) // null = default (solo il tuo pannello espanso); altrimenti Set esplicito dei pannelli aperti
   const [nowTick, setNowTick] = useState(Date.now())
 
   // Timer live: si aggiorna ogni secondo mentre la partita è in corso
@@ -848,7 +848,7 @@ export default function Game({ profile }) {
       const science = computeScienceSymbols(p)
       const trade = tradeDiscountSummary(p)
       const live = liveScoresById[p.id]
-      const isExpanded = expandedPlayerId ? expandedPlayerId === p.id : p.id === myPlayer.id
+      const isExpanded = expandedPlayerIds ? expandedPlayerIds.has(p.id) : p.id === myPlayer.id
       return (
         <div
           key={p.id}
@@ -861,7 +861,14 @@ export default function Game({ profile }) {
           }}
         >
           <div
-            onClick={() => setExpandedPlayerId(isExpanded ? 'none' : p.id)}
+            onClick={() =>
+              setExpandedPlayerIds((prev) => {
+                const next = new Set(prev ?? [myPlayer.id])
+                if (next.has(p.id)) next.delete(p.id)
+                else next.add(p.id)
+                return next
+              })
+            }
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6, cursor: 'pointer' }}
           >
             <strong>
@@ -991,7 +998,7 @@ export default function Game({ profile }) {
                           fontSize: '0.72rem'
                         }}
                       >
-                        {built ? '🏛️' : '▫️'} {STAGE_EMOJI[i + 1] || i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
+                        {built ? '🏛️ ' : ''}{STAGE_EMOJI[i + 1] || i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
                       </div>
                     )
                   })}
