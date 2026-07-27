@@ -19,7 +19,9 @@ import {
   resolveMilitaryConflict,
   computeMilitaryStrength,
   computeProduction,
+  computePurchasablePool,
   computeTradeDiscounts,
+  hasFreeChain,
   scoreGame,
   getCardData
 } from '../game-engine'
@@ -117,6 +119,31 @@ function tradeDiscountSummary(player) {
   if (leftIcons) parts.push(`◄${leftIcons}`)
   if (rightIcons) parts.push(`►${rightIcons}`)
   return parts.join(' ')
+}
+
+// Capisce se, per costruire questa carta, serve DAVVERO commerciare con
+// qualcuno (cioè restano risorse non coperte dalla produzione propria)
+// e, in tal caso, quali dei due vicini possono effettivamente fornirne
+// almeno una — così il selettore "compra da" in Game.jsx può: sparire
+// del tutto se il commercio non serve, mostrarsi bloccato sull'unico
+// vicino possibile se la scelta è obbligata, oppure offrire davvero
+// "indifferente" solo quando la scelta è genuina fra i due.
+function tradeOptionsFor(cost, player, leftNeighbor, rightNeighbor) {
+  const { fixed } = computeProduction(player)
+  const remaining = []
+  for (const [resource, amount] of Object.entries(cost || {})) {
+    if (resource === 'coins') continue
+    const owned = fixed[resource] || 0
+    if (amount > owned) remaining.push(resource)
+  }
+  if (remaining.length === 0) return { needed: false, canLeft: false, canRight: false }
+
+  function poolHasAny(neighbor) {
+    if (!neighbor) return false
+    const pool = computePurchasablePool(neighbor)
+    return remaining.some((r) => (pool.fixed[r] || 0) > 0 || pool.choiceGenerators.some((gen) => gen.includes(r)))
+  }
+  return { needed: true, canLeft: poolHasAny(leftNeighbor), canRight: poolHasAny(rightNeighbor) }
 }
 
 // Conta i simboli scientifici fissi accumulati (carte Verdi + stadi
@@ -1354,6 +1381,11 @@ export default function Game({ profile }) {
                 const card = getCardData(cardId)
                 if (!card) return null
                 const selected = selectedCardId === cardId
+                const tradeOpts = tradeOptionsFor(card.cost, myPlayer, leftNeighbor, rightNeighbor)
+                const tradeNeeded = tradeOpts.needed && !hasFreeChain(card, myPlayer) && (tradeOpts.canLeft || tradeOpts.canRight)
+                const tradeForced = tradeNeeded && tradeOpts.canLeft !== tradeOpts.canRight
+                const forcedSide = tradeForced ? (tradeOpts.canLeft ? 'left' : 'right') : null
+                const effectivePreference = tradeForced ? forcedSide : buyPreference
                 return (
                   <div
                     key={cardId}
@@ -1398,19 +1430,25 @@ export default function Game({ profile }) {
                     )}
                     {selected && (
                       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {Object.keys(card.cost || {}).some((k) => k !== 'coins') && (
+                        {tradeNeeded && (
                           <div style={{ fontSize: '0.68rem', color: '#5a5142' }}>
-                            Se possibile compra da:{' '}
-                            <select
-                              value={buyPreference || ''}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => setBuyPreference(e.target.value || null)}
-                              style={{ fontSize: '0.68rem' }}
-                            >
-                              <option value="">indifferente</option>
-                              <option value="left">vicino sinistro</option>
-                              <option value="right">vicino destro</option>
-                            </select>
+                            {tradeForced ? (
+                              <>Comprerai da: {forcedSide === 'left' ? 'vicino sinistro' : 'vicino destro'} (unica opzione)</>
+                            ) : (
+                              <>
+                                Se possibile compra da:{' '}
+                                <select
+                                  value={buyPreference || ''}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => setBuyPreference(e.target.value || null)}
+                                  style={{ fontSize: '0.68rem' }}
+                                >
+                                  <option value="">indifferente</option>
+                                  <option value="left">vicino sinistro</option>
+                                  <option value="right">vicino destro</option>
+                                </select>
+                              </>
+                            )}
                           </div>
                         )}
                         {bundleMode === 'free_build' && bundlePrimaryChoice ? (
@@ -1424,7 +1462,7 @@ export default function Game({ profile }) {
                               onClick={() =>
                                 bundleMode && !bundlePrimaryChoice
                                   ? setBundlePrimaryChoice({ cardId, action: 'build' })
-                                  : chooseAction(cardId, 'build', buyPreference, bundlePrimaryChoice, bundleMode)
+                                  : chooseAction(cardId, 'build', effectivePreference, bundlePrimaryChoice, bundleMode)
                               }
                             >
                               🏗️ Costruisci edificio
@@ -1437,7 +1475,7 @@ export default function Game({ profile }) {
                                 } else if (bundleMode && !bundlePrimaryChoice) {
                                   setBundlePrimaryChoice({ cardId, action: 'wonder' })
                                 } else {
-                                  chooseAction(cardId, 'wonder', buyPreference, bundlePrimaryChoice, bundleMode)
+                                  chooseAction(cardId, 'wonder', effectivePreference, bundlePrimaryChoice, bundleMode)
                                 }
                               }}
                               title={nextWonderStageLabel}
