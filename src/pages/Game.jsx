@@ -655,8 +655,6 @@ export default function Game({ profile }) {
             ...freshHand,
             hand: newHand,
             pending_action: null,
-            outgoing_hand: null,
-            outgoing_hand_for: null,
             dealt_age: isLastTurnOfAge ? freshHand.dealt_age : game.age
           }
           // ORDINE IMPORTANTE: prima si scrive e si aspetta conferma dal
@@ -664,13 +662,23 @@ export default function Game({ profile }) {
           // contrario, altrimenti se questa scrittura fallisse (errore di
           // rete, RLS, ecc.) il client mostrerebbe uno stato che nel
           // database non esiste mai stato.
+          //
+          // IMPORTANTE: qui NON si toccano più outgoing_hand/outgoing_hand_for
+          // (a differenza delle versioni precedenti). Pulirli qui causava una
+          // race condition reale e osservata in partita: se QUESTO giocatore
+          // risolveva il proprio turno e li azzerava PRIMA che il vicino
+          // destinatario fosse riuscito a leggerli, quel vicino trovava la
+          // mano vuota per sempre (anche con più tentativi, perché il dato
+          // non c'era più fin dal primo). È sicuro lasciarli: al turno
+          // successivo il mittente li sovrascrive comunque con dati freschi
+          // prima che servano di nuovo, e a fine Epoca vengono azzerati
+          // esplicitamente sia in chooseAction (ultimo turno) sia qui sotto
+          // nella distribuzione della mano nuova.
           const { error: handUpdateError } = await supabase
             .from('player_hands')
             .update({
               hand: newHand,
               pending_action: null,
-              outgoing_hand: null,
-              outgoing_hand_for: null,
               dealt_age: newHandRow.dealt_age
             })
             .eq('id', myHand.id)
