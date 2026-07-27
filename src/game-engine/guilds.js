@@ -18,7 +18,7 @@ export const GUILDS = [
     age: 3,
     color: 'purple',
     minPlayers: 3,
-    cost: { ore: 2, clay: 1, stone: 1 },
+    cost: { ore: 2, wood: 1, stone: 1, clay: 1 },
     scoringKind: 'per_color_in_neighbors',
     scoringValue: { color: 'brown', vpEach: 1 }
   },
@@ -28,7 +28,7 @@ export const GUILDS = [
     age: 3,
     color: 'purple',
     minPlayers: 3,
-    cost: { wood: 2, ore: 1, loom: 1 },
+    cost: { stone: 2, ore: 1 },
     scoringKind: 'per_color_in_neighbors',
     scoringValue: { color: 'grey', vpEach: 2 }
   },
@@ -68,7 +68,7 @@ export const GUILDS = [
     age: 3,
     color: 'purple',
     minPlayers: 3,
-    cost: { clay: 3, glass: 1 },
+    cost: { clay: 2, glass: 1 },
     scoringKind: 'per_color_in_neighbors',
     scoringValue: { color: 'red', vpEach: 1 }
   },
@@ -78,7 +78,7 @@ export const GUILDS = [
     age: 3,
     color: 'purple',
     minPlayers: 3,
-    cost: { stone: 2, clay: 2, glass: 1 },
+    cost: { stone: 3, clay: 2, glass: 1 },
     scoringKind: 'per_wonder_stage_self_and_neighbors',
     scoringValue: { vpEach: 1 }
   },
@@ -88,7 +88,7 @@ export const GUILDS = [
     age: 3,
     color: 'purple',
     minPlayers: 3,
-    cost: { wood: 2, stone: 2, loom: 1, papyrus: 1 },
+    cost: { ore: 2, stone: 1, loom: 1 },
     scoringKind: 'all_wonder_stages_flat',
     scoringValue: { vp: 7 }
   },
@@ -108,7 +108,7 @@ export const GUILDS = [
     age: 3,
     color: 'purple',
     minPlayers: 3,
-    cost: { ore: 3, wood: 1, glass: 1 },
+    cost: { wood: 3, glass: 1, papyrus: 1 },
     scoringKind: 'per_brown_grey_purple_self',
     scoringValue: { vpEach: 1 }
   }

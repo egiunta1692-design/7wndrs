@@ -129,13 +129,15 @@ piccole per essere lette con certezza assoluta):
 - **Alta confidenza**: nomi/colori/Epoca delle 70 carte + 10 Gilde (trascritti dalla scheda
   "Elenco delle Carte"), i valori PV grandi e leggibili nelle foto (es. Pantheon 7, Palazzo 8),
   gli effetti delle carte Gialle di Epoca II/III (testo esplicito nella scheda "Descrizione
-  degli Effetti"), tutta la meccanica di turno/produzione/acquisto/catene (dal regolamento), e
-  **il numero di copie/soglie di giocatori di ogni carta** (`EXACT_THRESHOLDS` in `cards.js`) —
-  confermate dall'utente carta per carta contro il mazzo fisico il 25/07; il totale (148 carte
-  incluse le Gilde) torna esattamente con quanto dichiarato nel regolamento.
-- **Media confidenza — da verificare contro il mazzo fisico**: i costi esatti in risorse di
-  singole carte, la mappa completa delle concatenazioni gratuite (`chainFrom` in `cards.js`), i
-  costi esatti degli stadi delle 7 plance Meraviglia (`wonders.js`).
+  degli Effetti"), tutta la meccanica di turno/produzione/acquisto/catene (dal regolamento),
+  **il numero di copie/soglie di giocatori di ogni carta** (`EXACT_THRESHOLDS` in `cards.js` —
+  confermate dall'utente carta per carta contro il mazzo fisico), e **i costi in risorse di
+  ogni carta e Gilda** (verificati il 27/07 contro la 7 Wonders Wiki — corrette diverse
+  imprecisioni, tra cui gli effetti di Faro/Porto/Camera di Commercio che contavano il colore
+  sbagliato). Il totale carte (148 incluse le Gilde) torna esattamente con il regolamento.
+- **Media confidenza — da verificare contro il mazzo fisico**: la mappa completa delle
+  concatenazioni gratuite (`chainFrom` in `cards.js`), i costi esatti degli stadi delle 7
+  plance Meraviglia (`wonders.js`).
 
 Sono tutte correzioni isolate, una riga per carta/stadio, in `src/game-engine/cards.js`,
 `guilds.js` e `wonders.js` — segnalami cosa non torna e li sistemiamo insieme.
