@@ -903,159 +903,169 @@ export default function Game({ profile }) {
             </div>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.72rem', color: '#5a5142', marginTop: 6 }}>
-            <div title="Numero di carte per colore — utile per le Gilde che contano le carte dei vicini">
-              <span style={{ color: '#a89b86' }}>🎨 Carte: </span>
-              {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple'].map((color) => (
-                <span key={color} style={{ marginRight: 6 }}>
-                  {COLOR_LABEL[color]}
-                  {(cardsByColor[color] || []).length}
-                </span>
-              ))}
+          {/* ---- Plancia Meraviglia: risorsa+nome, dettagli, città (se espanso), stadi ---- */}
+          <div
+            style={{
+              background: '#faf6ec',
+              border: '1px solid #e4ddcc',
+              borderRadius: 8,
+              padding: 8,
+              marginTop: 6
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontWeight: 700 }}>
+              <span>{RESOURCE_ICON[wonder?.startResource]}</span>
+              <span>
+                🏛️ {wonder?.name} ({p.wonder_side})
+              </span>
             </div>
 
-            <div title="Risorse fisse prodotte a ogni turno">
-              <span style={{ color: '#a89b86' }}>📦 Produzione: </span>
-              {Object.entries(production.fixed).filter(([, n]) => n > 0).length === 0 ? (
-                <span>—</span>
-              ) : (
-                Object.entries(production.fixed)
-                  .filter(([, n]) => n > 0)
-                  .map(([r, n]) => (
-                    <span key={r} style={{ marginRight: 6 }}>
-                      +{n}
-                      {RESOURCE_ICON[r]}
-                    </span>
-                  ))
-              )}
-            </div>
-
-            {production.choiceGenerators.length > 0 && (
-              <div title="Risorse producibili a scelta (1 unità a turno per ciascun generatore)">
-                <span style={{ color: '#a89b86' }}>🔀 A scelta: </span>
-                {production.choiceGenerators.map((gen, i) => (
-                  <span key={i} style={{ marginRight: 6 }}>
-                    +1 {gen.map((r) => RESOURCE_ICON[r]).join('/')}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.72rem', color: '#5a5142', marginTop: 6 }}>
+              <div title="Numero di carte per colore — utile per le Gilde che contano le carte dei vicini">
+                <span style={{ color: '#a89b86' }}>🎨 Carte: </span>
+                {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple'].map((color) => (
+                  <span key={color} style={{ marginRight: 6 }}>
+                    {COLOR_LABEL[color]}
+                    {(cardsByColor[color] || []).length}
                   </span>
                 ))}
               </div>
-            )}
 
-            {trade && (
-              <div title="Sconti commercio attivi: ◄ vicino sinistro, ► destro, ↔ entrambi">
-                <span style={{ color: '#a89b86' }}>💱 Commercio: </span>
-                {trade}
+              <div title="Risorse fisse prodotte a ogni turno">
+                <span style={{ color: '#a89b86' }}>📦 Produzione: </span>
+                {Object.entries(production.fixed).filter(([, n]) => n > 0).length === 0 ? (
+                  <span>—</span>
+                ) : (
+                  Object.entries(production.fixed)
+                    .filter(([, n]) => n > 0)
+                    .map(([r, n]) => (
+                      <span key={r} style={{ marginRight: 6 }}>
+                        +{n}
+                        {RESOURCE_ICON[r]}
+                      </span>
+                    ))
+                )}
               </div>
-            )}
 
-            {(science.fixed.compass > 0 || science.fixed.gear > 0 || science.fixed.tablet > 0 || science.choices > 0) && (
-              <div title="Simboli scientifici accumulati finora (i punti si calcolano solo a fine partita)">
-                <span style={{ color: '#a89b86' }}>🔬 Scienza: </span>
-                <span style={{ marginRight: 6 }}>
-                  {SCIENCE_ICON.compass}×{science.fixed.compass}
-                </span>
-                <span style={{ marginRight: 6 }}>
-                  {SCIENCE_ICON.gear}×{science.fixed.gear}
-                </span>
-                <span style={{ marginRight: 6 }}>
-                  {SCIENCE_ICON.tablet}×{science.fixed.tablet}
-                </span>
-                {science.choices > 0 && <span>+{science.choices} a scelta</span>}
-              </div>
-            )}
-          </div>
-
-          {isExpanded && (
-            <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              {/* ---- Area Meraviglia: plancia + stadi ---- */}
-              <div
-                style={{
-                  width: 220,
-                  flexShrink: 0,
-                  background: '#faf6ec',
-                  border: '1px solid #e4ddcc',
-                  borderRadius: 8,
-                  padding: 6
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>
-                  🏛️ {wonder?.name} ({p.wonder_side})
+              {production.choiceGenerators.length > 0 && (
+                <div title="Risorse producibili a scelta (1 unità a turno per ciascun generatore)">
+                  <span style={{ color: '#a89b86' }}>🔀 A scelta: </span>
+                  {production.choiceGenerators.map((gen, i) => (
+                    <span key={i} style={{ marginRight: 6 }}>
+                      +1 {gen.map((r) => RESOURCE_ICON[r]).join('/')}
+                    </span>
+                  ))}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: '#5a5142', marginBottom: 4 }}>{wonderStartResourceLabel(p.wonder_id)} di partenza</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {side?.stages.map((s, i) => {
-                    const built = i < p.wonder_stages_built
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          background: built ? '#e9dfc8' : '#fff',
-                          border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
-                          borderRadius: 6,
-                          padding: '2px 6px',
-                          opacity: built ? 1 : 0.65,
-                          fontWeight: built ? 700 : 400,
-                          fontSize: '0.72rem'
-                        }}
-                      >
-                        {built ? '🏛️ ' : ''}{STAGE_EMOJI[i + 1] || i + 1}: {costLabel(s.cost)} → {wonderStageLabel(s)}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+              )}
 
-              {/* ---- Area Città: edifici costruiti, una riga per colore ---- */}
-              <div style={{ flex: 1, minWidth: 260 }}>
+              {trade && (
+                <div title="Sconti commercio attivi: ◄ vicino sinistro, ► destro, ↔ entrambi">
+                  <span style={{ color: '#a89b86' }}>💱 Commercio: </span>
+                  {trade}
+                </div>
+              )}
+
+              {(science.fixed.compass > 0 || science.fixed.gear > 0 || science.fixed.tablet > 0 || science.choices > 0) && (
+                <div title="Simboli scientifici accumulati finora (i punti si calcolano solo a fine partita)">
+                  <span style={{ color: '#a89b86' }}>🔬 Scienza: </span>
+                  <span style={{ marginRight: 6 }}>
+                    {SCIENCE_ICON.compass}×{science.fixed.compass}
+                  </span>
+                  <span style={{ marginRight: 6 }}>
+                    {SCIENCE_ICON.gear}×{science.fixed.gear}
+                  </span>
+                  <span style={{ marginRight: 6 }}>
+                    {SCIENCE_ICON.tablet}×{science.fixed.tablet}
+                  </span>
+                  {science.choices > 0 && <span>+{science.choices} a scelta</span>}
+                </div>
+              )}
+            </div>
+
+            {isExpanded && (
+              <div style={{ marginTop: 8 }}>
                 {Object.keys(cardsByColor).length === 0 ? (
-                  <div style={{ color: '#a89b86' }}>Nessun edificio costruito ancora</div>
+                  <div style={{ color: '#a89b86', fontSize: '0.72rem' }}>Nessun edificio costruito ancora</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                     {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
                       .filter((color) => cardsByColor[color])
                       .map((color) => (
-                        <div key={color} style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1 }}>
-                            {cardsByColor[color].map((card) => (
-                              <div
-                                key={card.id}
-                                style={{
-                                  position: 'relative',
-                                  background: '#f5f0e6',
-                                  border: '1px solid #e4ddcc',
-                                  borderRadius: 6,
-                                  padding: '3px 16px 12px 6px',
-                                  minWidth: 130,
-                                  maxWidth: 170
-                                }}
-                              >
-                                <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
-                                  {COLOR_LABEL[color]} {card.name}
-                                </div>
-                                <div style={{ fontSize: '0.66rem', color: '#3d3527' }}>{effectLabel(card)}</div>
-                                {chainLabel(card).map((line, i) => (
-                                  <div key={i} style={{ fontSize: '0.62rem', color: '#8a6a48' }}>
-                                    {line}
-                                  </div>
-                                ))}
-                                {card.age && (
-                                  <span
-                                    title={`Epoca ${AGE_ROMAN[card.age]}`}
-                                    style={{ position: 'absolute', right: 5, bottom: 2, fontSize: '0.6rem', fontWeight: 700, color: '#a89b86' }}
-                                  >
-                                    {AGE_ROMAN[card.age]}
-                                  </span>
-                                )}
+                        <div key={color} style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {cardsByColor[color].map((card) => (
+                            <div
+                              key={card.id}
+                              style={{
+                                position: 'relative',
+                                background: '#f5f0e6',
+                                border: '1px solid #e4ddcc',
+                                borderRadius: 6,
+                                padding: '3px 16px 12px 6px',
+                                minWidth: 130,
+                                maxWidth: 170
+                              }}
+                            >
+                              <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
+                                {COLOR_LABEL[color]} {card.name}
                               </div>
-                            ))}
-                          </div>
+                              <div style={{ fontSize: '0.66rem', color: '#3d3527' }}>{effectLabel(card)}</div>
+                              {chainLabel(card).map((line, i) => (
+                                <div key={i} style={{ fontSize: '0.62rem', color: '#8a6a48' }}>
+                                  {line}
+                                </div>
+                              ))}
+                              {card.age && (
+                                <span
+                                  title={`Epoca ${AGE_ROMAN[card.age]}`}
+                                  style={{ position: 'absolute', right: 5, bottom: 2, fontSize: '0.6rem', fontWeight: 700, color: '#a89b86' }}
+                                >
+                                  {AGE_ROMAN[card.age]}
+                                </span>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       ))}
                   </div>
                 )}
               </div>
+            )}
+
+            {/* ---- Stadi Meraviglia: una colonna per stadio ---- */}
+            <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+              {side?.stages.map((s, i) => {
+                const built = i < p.wonder_stages_built
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      textAlign: 'center',
+                      gap: 2,
+                      background: built ? '#e9dfc8' : '#fff',
+                      border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
+                      borderRadius: 6,
+                      padding: '4px 2px',
+                      opacity: built ? 1 : 0.65,
+                      fontWeight: built ? 700 : 400,
+                      fontSize: '0.68rem'
+                    }}
+                  >
+                    <div>
+                      {built ? '🏛️ ' : ''}
+                      {STAGE_EMOJI[i + 1] || i + 1}
+                    </div>
+                    <div>{costLabel(s.cost)}</div>
+                    <div>→</div>
+                    <div>{wonderStageLabel(s)}</div>
+                  </div>
+                )
+              })}
             </div>
-          )}
+          </div>
         </div>
       )
     })
