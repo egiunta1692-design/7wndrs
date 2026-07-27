@@ -1045,18 +1045,22 @@ export default function Game({ profile }) {
               </div>
             )}
 
-            {/* ---- Stadi Meraviglia: una colonna per stadio, contenuto in riga ---- */}
+            {/* ---- Stadi Meraviglia: una colonna per stadio, contenuto in riga
+                 (o su due righe se l'effetto è un testo lungo, per restare leggibile) ---- */}
             <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
               {side?.stages.map((s, i) => {
                 const built = i < p.wonder_stages_built
+                const effectText = wonderStageLabel(s)
+                const isLongEffect = effectText.length > 12
                 return (
                   <div
                     key={i}
                     style={{
                       flex: 1,
                       display: 'flex',
+                      flexDirection: isLongEffect ? 'column' : 'row',
                       justifyContent: 'space-between',
-                      alignItems: 'center',
+                      alignItems: isLongEffect ? 'stretch' : 'center',
                       gap: 4,
                       background: built ? '#e9dfc8' : '#fff',
                       border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
@@ -1067,12 +1071,27 @@ export default function Game({ profile }) {
                       fontSize: '0.68rem'
                     }}
                   >
-                    <span>{costLabel(s.cost)}</span>
-                    <span>
-                      {built ? '🏛️ ' : ''}
-                      {STAGE_EMOJI[i + 1] || i + 1}
-                    </span>
-                    <span>{wonderStageLabel(s)}</span>
+                    {isLongEffect ? (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>{costLabel(s.cost)}</span>
+                          <span>
+                            {built ? '🏛️ ' : ''}
+                            {STAGE_EMOJI[i + 1] || i + 1}
+                          </span>
+                        </div>
+                        <div style={{ textAlign: 'center', marginTop: 2 }}>{effectText}</div>
+                      </>
+                    ) : (
+                      <>
+                        <span>{costLabel(s.cost)}</span>
+                        <span>
+                          {built ? '🏛️ ' : ''}
+                          {STAGE_EMOJI[i + 1] || i + 1}
+                        </span>
+                        <span>{effectText}</span>
+                      </>
+                    )}
                   </div>
                 )
               })}
@@ -1245,6 +1264,7 @@ export default function Game({ profile }) {
             Epoca {AGE_ROMAN[game.age]} · Turno {game.turn_number}/6
           </h1>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+            <span style={{ fontSize: '0.85rem', color: '#5a5142' }}>Stanza: {game.room_code}</span>
             <span style={{ fontSize: '0.85rem', color: '#5a5142' }} title="Tempo trascorso dall'avvio della partita">
               ⏱️ {formatElapsed(nowTick - new Date(game.started_at).getTime())}
             </span>
