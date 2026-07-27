@@ -1045,7 +1045,7 @@ export default function Game({ profile }) {
               </div>
             )}
 
-            {/* ---- Stadi Meraviglia: una colonna per stadio ---- */}
+            {/* ---- Stadi Meraviglia: una colonna per stadio, contenuto in riga ---- */}
             <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
               {side?.stages.map((s, i) => {
                 const built = i < p.wonder_stages_built
@@ -1055,25 +1055,24 @@ export default function Game({ profile }) {
                     style={{
                       flex: 1,
                       display: 'flex',
-                      flexDirection: 'column',
+                      justifyContent: 'space-between',
                       alignItems: 'center',
-                      textAlign: 'center',
-                      gap: 3,
+                      gap: 4,
                       background: built ? '#e9dfc8' : '#fff',
                       border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
                       borderRadius: 6,
-                      padding: '6px 2px',
+                      padding: '6px 6px',
                       opacity: built ? 1 : 0.65,
                       fontWeight: built ? 700 : 400,
                       fontSize: '0.68rem'
                     }}
                   >
-                    <div>{wonderStageLabel(s)}</div>
-                    <div>{costLabel(s.cost)}</div>
-                    <div>
+                    <span>{costLabel(s.cost)}</span>
+                    <span>
                       {built ? '🏛️ ' : ''}
                       {STAGE_EMOJI[i + 1] || i + 1}
-                    </div>
+                    </span>
+                    <span>{wonderStageLabel(s)}</span>
                   </div>
                 )
               })}
@@ -1261,29 +1260,21 @@ export default function Game({ profile }) {
             {renderOnePlayer(myPlayer)}
           </div>
 
-          {/* "Spina" verticale continua: rappresenta il giro di vicinato — in
-              alto il vicino destro, in basso il vicino sinistro, e i due
-              estremi si richiudono idealmente su di te per completare il
-              cerchio del tavolo. */}
-          <div style={{ width: 20, position: 'relative', flexShrink: 0 }} title="Linea di vicinato: dall'alto (vicino destro) al basso (vicino sinistro), il cerchio si richiude su di te">
-            <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, background: '#8a6a48', transform: 'translateX(-50%)' }} />
-          </div>
+          <div style={{ width: 16, flexShrink: 0 }} />
 
           {/* Colonna destra: avversari in ordine di seggio reale attorno al
-              tavolo, dal tuo vicino destro (in cima) al tuo vicino sinistro
+              tavolo, dal tuo vicino sinistro (in cima) al tuo vicino destro
               (in fondo) — ogni coppia consecutiva è realmente vicina di
               posto, non solo nell'elenco. */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-            {Array.from({ length: numPlayers - 1 }, (_, i) => seatToPlayer[(mySeat + i + 1) % numPlayers])
+            {Array.from({ length: numPlayers - 1 }, (_, i) => seatToPlayer[(mySeat - i - 1 + numPlayers * 2) % numPlayers])
               .filter(Boolean)
               .map((p, i, arr) => (
-                <div key={p.id} style={{ borderLeft: '3px solid #8a6a48', paddingLeft: 8 }}>
-                  {i === 0 && (
-                    <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700 }}>► tuo vicino destro</div>
-                  )}
+                <div key={p.id}>
+                  {i === 0 && <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700 }}>◄ tuo vicino sinistro</div>}
                   {renderOnePlayer(p)}
                   {i === arr.length - 1 && (
-                    <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700, textAlign: 'right' }}>tuo vicino sinistro ◄</div>
+                    <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700, textAlign: 'right' }}>tuo vicino destro ►</div>
                   )}
                 </div>
               ))}
