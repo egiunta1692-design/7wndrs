@@ -1399,7 +1399,12 @@ export default function Game({ profile }) {
                         {Object.keys(card.cost || {}).some((k) => k !== 'coins') && (
                           <div style={{ fontSize: '0.68rem', color: '#5a5142' }}>
                             Se possibile compra da:{' '}
-                            <select value={buyPreference || ''} onChange={(e) => setBuyPreference(e.target.value || null)} style={{ fontSize: '0.68rem' }}>
+                            <select
+                              value={buyPreference || ''}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setBuyPreference(e.target.value || null)}
+                              style={{ fontSize: '0.68rem' }}
+                            >
                               <option value="">indifferente</option>
                               <option value="left">vicino sinistro</option>
                               <option value="right">vicino destro</option>
