@@ -158,6 +158,13 @@ function lastTurnSummary(log) {
           </span>
         )
     }
+    if (a.coinCost)
+      bits.push(
+        <span key="cost">
+          -{a.coinCost}
+          <ImgIcon name="coin" size={11} />
+        </span>
+      )
     if (a.bonusCoins)
       bits.push(
         <span key="bonus">
@@ -883,6 +890,27 @@ export default function Game({ profile }) {
           paymentsReceived: owedToMe,
           coinsBefore: baselinePlayer.coins,
           coinsAfter: updatedPublic.coins
+        }
+
+        // Controllo di coerenza: il saldo dopo deve tornare esattamente da
+        // saldo prima meno i costi totali più i bonus e gli incassi. Se
+        // non torna, è un bug vero — lo segnaliamo forte con tutti i
+        // numeri invece di scoprirlo solo "a occhio" dall'interfaccia.
+        const totalCoinCost = actions.reduce((s, a) => s + (a.coinCost || 0), 0)
+        const totalBonusCoins = actions.reduce((s, a) => s + (a.bonusCoins || 0), 0)
+        const expectedCoinsAfter = baselinePlayer.coins - totalCoinCost + totalBonusCoins + owedToMe
+        if (expectedCoinsAfter !== updatedPublic.coins && !(updatedPublic.coins === 0 && expectedCoinsAfter < 0)) {
+          console.error('[resolveTurn] INCONGRUENZA SALDO — segnalare questo log:', {
+            playerId: myPlayer.id,
+            coinsBefore: baselinePlayer.coins,
+            totalCoinCost,
+            totalBonusCoins,
+            owedToMe,
+            expectedCoinsAfter,
+            actualCoinsAfter: updatedPublic.coins,
+            actions,
+            prepared
+          })
         }
 
         // Scrittura atomica: procede solo se turn_applied non è già
