@@ -35,6 +35,8 @@ const COLOR_LABEL = { brown: '🟤', grey: '⚪', blue: '🔵', yellow: '🟡', 
 const RESOURCE_ICON = { clay: '🧱', stone: '🪨', ore: '⛏️', wood: '🪵', glass: '🔷', loom: '🧵', papyrus: '📜' }
 const RESOURCE_NAME = { clay: 'Argilla', stone: 'Pietra', ore: 'Minerale', wood: 'Legno', glass: 'Vetro', loom: 'Tessuto', papyrus: 'Papiro' }
 const AGE_ROMAN = { 1: 'Ⅰ', 2: 'Ⅱ', 3: 'Ⅲ' }
+const WONDER_SIDE_ICON = { A: '🏙️', B: '🌆' }
+const WONDER_SIDE_NAME = { A: 'Giorno', B: 'Notte' }
 const STAGE_EMOJI = { 1: '1️⃣', 2: '2️⃣', 3: '3️⃣', 4: '4️⃣' }
 const SCIENCE_ICON = { compass: '🧭', gear: '⚙️', tablet: '📝' }
 const COLOR_NAME = { brown: 'Marrone', grey: 'Grigia', blue: 'Blu', yellow: 'Gialla', red: 'Rossa', green: 'Verde', purple: 'Viola' }
@@ -1244,7 +1246,8 @@ export default function Game({ profile }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontWeight: 700 }}>
               <span>{resIconNode(wonder?.startResource)}</span>
               <span>
-                🏛️ {wonder?.name} ({p.wonder_side})
+                🏛️ {wonder?.name}{' '}
+                <span title={WONDER_SIDE_NAME[p.wonder_side]}>{WONDER_SIDE_ICON[p.wonder_side]}</span>
               </span>
             </div>
 
@@ -1448,7 +1451,9 @@ export default function Game({ profile }) {
             {players.map((p) => (
               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #eee' }}>
                 <span>{p.nickname}</span>
-                <span>{p.wonder_id ? `${WONDERS[p.wonder_id].name} (${p.wonder_side}) · ${wonderStartResourceLabel(p.wonder_id)}` : '— sceglie...'}</span>
+                <span>
+                  {p.wonder_id ? `${WONDERS[p.wonder_id].name} ${WONDER_SIDE_ICON[p.wonder_side]} · ${wonderStartResourceLabel(p.wonder_id)}` : '— sceglie...'}
+                </span>
               </div>
             ))}
           </div>
