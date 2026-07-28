@@ -126,7 +126,7 @@ function tradeDiscountSummary(player) {
     <>
       {leftArr.length > 0 && <span>◄{iconsRow(leftArr)}</span>}
       {leftArr.length > 0 && rightArr.length > 0 && ' '}
-      {rightArr.length > 0 && <span>►{iconsRow(rightArr)}</span>}
+      {rightArr.length > 0 && <span>{iconsRow(rightArr)}►</span>}
     </>
   )
 }
@@ -263,16 +263,19 @@ function cardEffectLabel(card) {
     case 'science':
       return `Simbolo scientifico: ${SCIENCE_ICON[e.value] || e.value}`
     case 'trade_discount': {
+      const hasLeft = e.value.neighbors.includes('left')
+      const hasRight = e.value.neighbors.includes('right')
       const who = e.value.neighbors.map((n) => (n === 'left' ? 'sinistro' : 'destro')).join('/')
       return (
         <>
-          Sconto commercio (1 invece di 2) dal vicino {who}:{' '}
+          1<ImgIcon name="coin" size={12} title="monete" /> per acquistare dal vicino {who}: {hasLeft && '◄'}
           {e.value.resources.map((r, i) => (
             <span key={r}>
               {i > 0 ? ' ' : ''}
               {resIconNode(r)}
             </span>
           ))}
+          {hasRight && '►'}
         </>
       )
     }
@@ -373,18 +376,22 @@ function wonderStageLabel(stage) {
       return stage.effectValue === 1
         ? `1 simbolo scientifico a scelta 🧭⚙️📝`
         : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
-    case 'trade_discount':
+    case 'trade_discount': {
+      const hasLeftW = stage.effectValue.neighbors.includes('left')
+      const hasRightW = stage.effectValue.neighbors.includes('right')
       return (
         <>
-          Sconto commercio:{' '}
+          1<ImgIcon name="coin" size={12} title="monete" /> per acquistare: {hasLeftW && '◄'}
           {stage.effectValue.resources.map((r, i) => (
             <span key={r}>
               {i > 0 ? ' ' : ''}
               {resIconNode(r)}
             </span>
           ))}
+          {hasRightW && '►'}
         </>
       )
+    }
     case 'build_from_hand_free':
       return `Costruisci gratis dalla mano (1 volta/Epoca)`
     case 'build_from_discard':
@@ -1088,7 +1095,7 @@ export default function Game({ profile }) {
 
               {production.choiceGenerators.length > 0 && (
                 <div title="Risorse producibili a scelta (1 unità a turno per ciascun generatore)">
-                  <span style={{ color: '#a89b86' }}>🔀 A scelta: </span>
+                  <span style={{ color: '#a89b86' }}>A scelta: </span>
                   {production.choiceGenerators.map((gen, i) => (
                     <span key={i} style={{ marginRight: 6 }}>
                       +1{' '}
@@ -1426,7 +1433,7 @@ export default function Game({ profile }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 0, margin: '10px 0 16px', alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', gap: 0, margin: '5px 0px 0px', alignItems: 'flex-start' }}>
           {/* Colonna sinistra: il tuo pannello + la tua mano, con scroll
               indipendente se il contenuto supera l'altezza disponibile. */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 'calc(100vh - 210px)', overflowY: 'auto', paddingRight: 4 }}>
