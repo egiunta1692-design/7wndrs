@@ -1335,7 +1335,7 @@ export default function Game({ profile }) {
                               key={card.id}
                               style={{
                                 position: 'relative',
-                                background: '#f5f0e6',
+                                background: '#fff',
                                 border: '1px solid #e4ddcc',
                                 borderRadius: 6,
                                 padding: '3px 16px 12px 6px',
@@ -1352,6 +1352,7 @@ export default function Game({ profile }) {
                                   {line}
                                 </div>
                               ))}
+                              <div style={{ fontSize: '0.62rem', color: '#5a5142', marginTop: 2 }}>Costo: {costLabel(card.cost)}</div>
                               {card.age && (
                                 <span
                                   title={`Epoca ${AGE_ROMAN[card.age]}`}
@@ -1713,13 +1714,13 @@ export default function Game({ profile }) {
                     <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
                       <Icon name={`color_${card.color}`} size={12} /> {card.name}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#5a5142' }}>Costo: {costLabel(card.cost)}</div>
                     <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 2 }}>{effectLabel(card)}</div>
                     {chainLabel(card).map((line, i) => (
                       <div key={i} style={{ fontSize: '0.7rem', color: '#8a6a48', marginTop: 2 }}>
                         {line}
                       </div>
                     ))}
+                    <div style={{ fontSize: '0.75rem', color: '#5a5142', marginTop: 2 }}>Costo: {costLabel(card.cost)}</div>
                     {card.age && (
                       <span
                         title={`Epoca ${AGE_ROMAN[card.age]}`}
