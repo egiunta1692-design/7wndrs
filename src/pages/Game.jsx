@@ -1426,33 +1426,20 @@ export default function Game({ profile }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 0, margin: '10px 0 16px', alignItems: 'stretch' }}>
-          {/* Colonna sinistra: il tuo pannello */}
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', gap: 0, margin: '10px 0 16px', alignItems: 'flex-start' }}>
+          {/* Colonna sinistra: il tuo pannello + la tua mano, con scroll
+              indipendente se il contenuto supera l'altezza disponibile. */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 'calc(100vh - 210px)', overflowY: 'auto', paddingRight: 4 }}>
             {renderOnePlayer(myPlayer)}
-          </div>
-
-          <div style={{ width: 16, flexShrink: 0 }} />
-
-          {/* Colonna destra: avversari in ordine di seggio reale attorno al
-              tavolo, dal tuo vicino sinistro (in cima) al tuo vicino destro
-              (in fondo) — ogni coppia consecutiva è realmente vicina di
-              posto, non solo nell'elenco. */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-            {Array.from({ length: numPlayers - 1 }, (_, i) => seatToPlayer[(mySeat - i - 1 + numPlayers * 2) % numPlayers])
-              .filter(Boolean)
-              .map((p, i, arr) => (
-                <div key={p.id}>
-                  {i === 0 && <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700 }}>◄ tuo vicino sinistro</div>}
-                  {renderOnePlayer(p)}
-                  {i === arr.length - 1 && (
-                    <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700, textAlign: 'right' }}>tuo vicino destro ►</div>
-                  )}
-                </div>
-              ))}
-          </div>
-        </div>
-
+            <div
+              style={{
+                border: '2px solid #8a6a48',
+                borderRadius: 10,
+                padding: '8px 12px',
+                fontSize: '0.8rem',
+                background: '#fff'
+              }}
+            >
         {iAmReady ? (
           <p style={{ textAlign: 'center', color: '#5a5142' }}>Hai scelto la tua carta — aspetto gli altri giocatori...</p>
         ) : discardPicker ? (
@@ -1501,7 +1488,6 @@ export default function Game({ profile }) {
           </>
         ) : (
           <>
-            <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>La tua mano:</p>
             {bundleMode && (
               <p style={{ fontSize: '0.78rem', color: '#8a6a48', marginTop: -6 }}>
                 {bundleMode === 'last_card' ? (
@@ -1672,6 +1658,31 @@ export default function Game({ profile }) {
             </div>
           </>
         )}
+            </div>
+          </div>
+
+          <div style={{ width: 16, flexShrink: 0 }} />
+
+          {/* Colonna destra: avversari in ordine di seggio reale attorno al
+              tavolo, dal tuo vicino sinistro (in cima) al tuo vicino destro
+              (in fondo) — ogni coppia consecutiva è realmente vicina di
+              posto, non solo nell'elenco. Scroll indipendente dalla
+              colonna di sinistra. */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, maxHeight: 'calc(100vh - 210px)', overflowY: 'auto', paddingRight: 4 }}>
+            {Array.from({ length: numPlayers - 1 }, (_, i) => seatToPlayer[(mySeat - i - 1 + numPlayers * 2) % numPlayers])
+              .filter(Boolean)
+              .map((p, i, arr) => (
+                <div key={p.id}>
+                  {i === 0 && <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700 }}>◄ tuo vicino sinistro</div>}
+                  {renderOnePlayer(p)}
+                  {i === arr.length - 1 && (
+                    <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700, textAlign: 'right' }}>tuo vicino destro ►</div>
+                  )}
+                </div>
+              ))}
+          </div>
+        </div>
+
         {error && <p style={errorText}>{error}</p>}
       </div>
     </div>
