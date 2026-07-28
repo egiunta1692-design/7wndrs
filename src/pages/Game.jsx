@@ -1304,7 +1304,7 @@ export default function Game({ profile }) {
           {/* ---- Plancia Meraviglia: risorsa+nome, dettagli, città (se espanso), stadi ---- */}
           <div
             style={{
-              background: '#faf6ec',
+              background: p.wonder_side === 'B' ? 'rgb(147 136 196 / 32%)' : 'rgb(172 219 255 / 32%)',
               border: '1px solid #e4ddcc',
               borderRadius: 8,
               padding: 8,
@@ -1533,7 +1533,8 @@ export default function Game({ profile }) {
                   border: '2px solid #8a6a48',
                   borderRadius: 10,
                   padding: '6px 10px',
-                  marginBottom: 10
+                  marginBottom: 10,
+                  background: myPlayer.wonder_side === 'B' ? 'rgb(147 136 196 / 32%)' : 'rgb(172 219 255 / 32%)'
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1563,7 +1564,7 @@ export default function Game({ profile }) {
                         border: '1px solid #e4ddcc',
                         borderRadius: 6,
                         padding: '3px 4px',
-                        fontSize: '0.62rem'
+                        fontSize: '0.68rem'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1586,7 +1587,16 @@ export default function Game({ profile }) {
                   </div>
                   <div style={{ display: 'flex', gap: 10 }}>
                     {['A', 'B'].map((side) => (
-                      <div key={side} style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        key={side}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          background: side === 'B' ? 'rgb(147 136 196 / 32%)' : 'rgb(172 219 255 / 32%)',
+                          borderRadius: 8,
+                          padding: 6
+                        }}
+                      >
                         <button style={pillButton} onClick={() => chooseWonder(id, side)}>
                           Lato {side} {WONDER_SIDE_ICON[side]}
                         </button>
@@ -1604,7 +1614,7 @@ export default function Game({ profile }) {
                                 border: '1px solid #e4ddcc',
                                 borderRadius: 6,
                                 padding: '3px 2px',
-                                fontSize: '0.56rem'
+                                fontSize: '0.68rem'
                               }}
                             >
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
