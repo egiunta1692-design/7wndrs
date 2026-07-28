@@ -580,26 +580,6 @@ export default function Game({ profile }) {
     return () => clearInterval(interval)
   }, [])
 
-  // Durata dell'ultimo turno: tracciata SOLO localmente nel browser
-  // (nessuna colonna nuova nel database) — quando cambia game.turn_number
-  // (o l'Epoca), calcola quanto è durato il turno appena chiuso e lo
-  // ricorda. Limite noto: essendo solo locale, si azzera se questa
-  // scheda viene ricaricata a metà partita (non ha memoria di prima).
-  const turnStartRef = useRef(Date.now())
-  const turnKeyRef = useRef(null)
-  const [lastTurnDuration, setLastTurnDuration] = useState(null)
-  useEffect(() => {
-    if (!game || game.status !== 'playing') return
-    const key = `${game.age}-${game.turn_number}`
-    if (turnKeyRef.current !== null && turnKeyRef.current !== key) {
-      setLastTurnDuration(Date.now() - turnStartRef.current)
-    }
-    if (turnKeyRef.current !== key) {
-      turnKeyRef.current = key
-      turnStartRef.current = Date.now()
-    }
-  }, [game?.age, game?.turn_number, game?.status])
-
   const resolvingRef = useRef(null)
   const advancingRef = useRef(false)
   const dealingRef = useRef(false)
@@ -697,6 +677,11 @@ export default function Game({ profile }) {
 
   async function cancelWonder() {
     await supabase.from('players').update({ wonder_id: null, wonder_side: null }).eq('id', myPlayer.id)
+  }
+
+  async function flipWonderSide() {
+    const newSide = myPlayer.wonder_side === 'A' ? 'B' : 'A'
+    await supabase.from('players').update({ wonder_side: newSide }).eq('id', myPlayer.id)
   }
 
   async function startGame() {
@@ -1545,21 +1530,50 @@ export default function Game({ profile }) {
             {myPlayer.wonder_id && (
               <div
                 style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
                   border: '2px solid #8a6a48',
                   borderRadius: 10,
                   padding: '6px 10px',
                   marginBottom: 10
                 }}
               >
-                <span>
-                  La tua scelta: <strong>{WONDERS[myPlayer.wonder_id].name}</strong> {WONDER_SIDE_ICON[myPlayer.wonder_side]}
-                </span>
-                <button style={secondaryButton} onClick={cancelWonder}>
-                  Annulla scelta
-                </button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>
+                    La tua scelta: <strong>{WONDERS[myPlayer.wonder_id].name}</strong> {WONDER_SIDE_ICON[myPlayer.wonder_side]}
+                  </span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button style={secondaryButton} onClick={flipWonderSide}>
+                      🔄 Gira ({WONDER_SIDE_ICON[myPlayer.wonder_side === 'A' ? 'B' : 'A']})
+                    </button>
+                    <button style={secondaryButton} onClick={cancelWonder}>
+                      Annulla scelta
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>
+                  {WONDERS[myPlayer.wonder_id].sides[myPlayer.wonder_side].stages.map((s, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 2,
+                        background: '#fff',
+                        border: '1px solid #e4ddcc',
+                        borderRadius: 6,
+                        padding: '3px 4px',
+                        fontSize: '0.62rem'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{costLabel(s.cost)}</span>
+                        <span>{STAGE_EMOJI[i + 1] || i + 1}</span>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>{wonderStageLabel(s)}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1729,9 +1743,8 @@ export default function Game({ profile }) {
           </h1>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
             <span style={{ fontSize: '0.85rem', color: '#5a5142' }}>Stanza: {game.room_code}</span>
-            <span style={{ fontSize: '0.85rem', color: '#5a5142' }} title="Tempo trascorso dall'avvio della partita (tra parentesi: durata dell'ultimo turno, tracciata solo su questa scheda del browser)">
+            <span style={{ fontSize: '0.85rem', color: '#5a5142' }} title="Tempo trascorso dall'avvio della partita">
               ⏱️ {formatElapsed(nowTick - new Date(game.started_at).getTime())}
-              {lastTurnDuration != null && <> ({formatElapsed(lastTurnDuration)})</>}
             </span>
             <button onClick={() => navigate('/')} style={linkText}>
               ← Lobby
