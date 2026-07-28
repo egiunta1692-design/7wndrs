@@ -117,13 +117,25 @@ function chainLabel(card) {
 // momento della risoluzione) — utile sia per verificare a colpo
 // d'occhio che acquisti/incassi tornino, sia come informazione per gli
 // altri giocatori su cosa è appena successo.
+function joinWithSpace(items) {
+  return items.reduce((acc, it, i) => (i === 0 ? [it] : [...acc, ' ', it]), [])
+}
+
 function lastTurnSummary(log) {
   if (!log) return null
   const actionIcon = { build: '🏗️', wonder: '🏛️', discard: '💰' }
   const parts = []
   for (const a of log.actions) {
-    const card = a.cardId ? getCardData(a.cardId) : null
-    const bits = [actionIcon[a.action] || '', card?.name || (a.action === 'wonder' ? 'Stadio Meraviglia' : '')]
+    const bits = [actionIcon[a.action] || '']
+    if (a.action === 'wonder') {
+      // La carta usata "come carburante" per lo stadio non si rivela mai
+      // (da regolamento resta coperta) — si mostra solo quale stadio è
+      // stato costruito.
+      bits.push(`Meraviglia ${STAGE_EMOJI[(a.stageIndex ?? 0) + 1] || (a.stageIndex ?? 0) + 1}`)
+    } else if (a.action === 'build') {
+      const card = a.cardId ? getCardData(a.cardId) : null
+      if (card?.name) bits.push(card.name)
+    }
     if (a.purchases?.length) {
       const left = a.purchases.filter((p) => p.neighbor === 'left')
       const right = a.purchases.filter((p) => p.neighbor === 'right')
@@ -154,8 +166,8 @@ function lastTurnSummary(log) {
         </span>
       )
     parts.push(
-      <span key={parts.length} style={{ marginRight: 8 }}>
-        {bits}
+      <span key={parts.length} style={{ marginRight: 10 }}>
+        {joinWithSpace(bits)}
       </span>
     )
   }
@@ -163,14 +175,14 @@ function lastTurnSummary(log) {
     <span>
       {parts}
       {log.paymentsReceived > 0 && (
-        <span style={{ marginRight: 8 }}>
+        <span style={{ marginRight: 10 }}>
           incassati +{log.paymentsReceived}
           <ImgIcon name="coin" size={11} />
         </span>
       )}
       <span style={{ color: '#a89b86' }}>
         ({log.coinsBefore}
-        <ImgIcon name="coin" size={11} />→{log.coinsAfter}
+        <ImgIcon name="coin" size={11} /> → {log.coinsAfter}
         <ImgIcon name="coin" size={11} />)
       </span>
     </span>
@@ -836,10 +848,34 @@ export default function Game({ profile }) {
         // sia come informazione trasparente per tutti in tavola.
         const actions = prepared.bundle
           ? [
-              { action: prepared.primary.action, cardId: prepared.primary.cardId, coinCost: prepared.primary.coinCost, bonusCoins: prepared.primary.bonusCoins, purchases: prepared.primary.purchases || [] },
-              { action: prepared.bonus.action, cardId: prepared.bonus.cardId, coinCost: prepared.bonus.coinCost, bonusCoins: prepared.bonus.bonusCoins, purchases: prepared.bonus.purchases || [], bonusVia: prepared.kind }
+              {
+                action: prepared.primary.action,
+                cardId: prepared.primary.cardId,
+                coinCost: prepared.primary.coinCost,
+                bonusCoins: prepared.primary.bonusCoins,
+                purchases: prepared.primary.purchases || [],
+                stageIndex: prepared.primary.stageIndex
+              },
+              {
+                action: prepared.bonus.action,
+                cardId: prepared.bonus.cardId,
+                coinCost: prepared.bonus.coinCost,
+                bonusCoins: prepared.bonus.bonusCoins,
+                purchases: prepared.bonus.purchases || [],
+                stageIndex: prepared.bonus.stageIndex,
+                bonusVia: prepared.kind
+              }
             ]
-          : [{ action: prepared.action, cardId: prepared.cardId, coinCost: prepared.coinCost, bonusCoins: prepared.bonusCoins, purchases: prepared.purchases || [] }]
+          : [
+              {
+                action: prepared.action,
+                cardId: prepared.cardId,
+                coinCost: prepared.coinCost,
+                bonusCoins: prepared.bonusCoins,
+                purchases: prepared.purchases || [],
+                stageIndex: prepared.stageIndex
+              }
+            ]
         const lastTurnLog = {
           turn: game.turn_number,
           age: game.age,
