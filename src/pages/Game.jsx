@@ -22,10 +22,13 @@ import {
   computePurchasablePool,
   computeTradeDiscounts,
   hasFreeChain,
+  canBuildCard,
+  canBuildWonderStage,
   scoreGame,
   getCardData
 } from '../game-engine'
 import Loader from '../components/Loader'
+import Icon, { ImgIcon } from '../components/Icon'
 import { page, cardWide, title, primaryButton, secondaryButton, pillButton, errorText, linkText } from '../styles/theme'
 
 const COLOR_LABEL = { brown: '🟤', grey: '⚪', blue: '🔵', yellow: '🟡', red: '🔴', green: '🟢', purple: '🟣' }
@@ -111,14 +114,21 @@ function chainLabel(card) {
 // entrambi se le risorse scontate coincidono.
 function tradeDiscountSummary(player) {
   const d = computeTradeDiscounts(player)
-  const leftIcons = [...d.left].map((r) => RESOURCE_ICON[r]).join('')
-  const rightIcons = [...d.right].map((r) => RESOURCE_ICON[r]).join('')
-  if (!leftIcons && !rightIcons) return null
-  if (leftIcons && rightIcons && leftIcons === rightIcons) return `↔️${leftIcons}`
-  const parts = []
-  if (leftIcons) parts.push(`◄${leftIcons}`)
-  if (rightIcons) parts.push(`►${rightIcons}`)
-  return parts.join(' ')
+  const leftArr = [...d.left]
+  const rightArr = [...d.right]
+  if (leftArr.length === 0 && rightArr.length === 0) return null
+  const sameSet = leftArr.length === rightArr.length && leftArr.every((r) => rightArr.includes(r))
+  const iconsRow = (arr) => arr.map((r) => <span key={r}>{resIconNode(r)}</span>)
+  if (leftArr.length && rightArr.length && sameSet) {
+    return <>↔️{iconsRow(leftArr)}</>
+  }
+  return (
+    <>
+      {leftArr.length > 0 && <span>◄{iconsRow(leftArr)}</span>}
+      {leftArr.length > 0 && rightArr.length > 0 && ' '}
+      {rightArr.length > 0 && <span>►{iconsRow(rightArr)}</span>}
+    </>
+  )
 }
 
 // Capisce se, per costruire questa carta, serve DAVVERO commerciare con
@@ -180,12 +190,38 @@ function formatElapsed(ms) {
 
 function costLabel(cost = {}) {
   const parts = []
-  if (cost.coins) parts.push(`${cost.coins}🪙`)
+  if (cost.coins)
+    parts.push(
+      <span key="coins">
+        {cost.coins}
+        <ImgIcon name="coin" size={12} title="monete" />
+      </span>
+    )
   for (const [r, n] of Object.entries(cost)) {
     if (r === 'coins') continue
-    parts.push(`${n}${RESOURCE_ICON[r] || r}`)
+    if (r === 'stone' || r === 'wood') {
+      parts.push(
+        <span key={r}>
+          {n}
+          <ImgIcon name={r} size={12} title={r} />
+        </span>
+      )
+    } else {
+      parts.push(`${n}${RESOURCE_ICON[r] || r}`)
+    }
   }
-  return parts.length ? parts.join(' ') : 'Gratis'
+  if (parts.length === 0) return 'Gratis'
+  return parts.reduce((acc, p, i) => (i === 0 ? [p] : [...acc, ' ', p]), [])
+}
+
+// Risorsa come nodo React: icona SVG per pietra/legno (fornite
+// dall'utente), emoji per le altre (nessun problema di compatibilità).
+function resIconNode(r, key) {
+  if (r === 'stone' || r === 'wood') return <ImgIcon key={key} name={r} size={12} title={r} />
+  return RESOURCE_ICON[r] || r
+}
+function colorIconNode(color, key) {
+  return <Icon key={key} name={`color_${color}`} size={12} />
 }
 
 // Descrizione leggibile dell'effetto di una carta Epoca (usata sia
@@ -195,31 +231,78 @@ function cardEffectLabel(card) {
   if (!e) return ''
   switch (e.kind) {
     case 'produce_fixed':
-      return `+${e.amount || 1}${RESOURCE_ICON[e.value] || e.value}`
+      return (
+        <>
+          +{e.amount || 1}
+          {resIconNode(e.value)}
+        </>
+      )
     case 'produce_choice':
-      return `+1 a scelta: ${e.value.map((r) => RESOURCE_ICON[r]).join(' ')}`
+      return (
+        <>
+          +1 a scelta:{' '}
+          {e.value.map((r, i) => (
+            <span key={r}>
+              {i > 0 ? ' ' : ''}
+              {resIconNode(r)}
+            </span>
+          ))}
+        </>
+      )
     case 'vp':
       return `+${e.value}🏆`
     case 'coins_on_build':
-      return `+${e.value}🪙`
+      return (
+        <>
+          +{e.value}
+          <ImgIcon name="coin" size={12} title="monete" />
+        </>
+      )
     case 'shields':
       return `+${e.value}⚔️`
     case 'science':
       return `Simbolo scientifico: ${SCIENCE_ICON[e.value] || e.value}`
     case 'trade_discount': {
       const who = e.value.neighbors.map((n) => (n === 'left' ? 'sinistro' : 'destro')).join('/')
-      return `Sconto commercio (1 invece di 2) dal vicino ${who}: ${e.value.resources.map((r) => RESOURCE_ICON[r]).join(' ')}`
+      return (
+        <>
+          Sconto commercio (1 invece di 2) dal vicino {who}:{' '}
+          {e.value.resources.map((r, i) => (
+            <span key={r}>
+              {i > 0 ? ' ' : ''}
+              {resIconNode(r)}
+            </span>
+          ))}
+        </>
+      )
     }
     case 'coins_per_color': {
       const { color, coinsEach, scope } = e.value
-      return `+${coinsEach}🪙 per ogni carta ${COLOR_LABEL[color]} ${COLOR_NAME[color]} ${scope === 'self_and_neighbors' ? '(tua città + vicini)' : '(tua città)'}`
+      return (
+        <>
+          +{coinsEach}
+          <ImgIcon name="coin" size={12} title="monete" /> per ogni carta {colorIconNode(color)} {COLOR_NAME[color]}{' '}
+          {scope === 'self_and_neighbors' ? '(tua città + vicini)' : '(tua città)'}
+        </>
+      )
     }
     case 'per_color_coins_and_vp': {
       const { color, coinsEach, vpEach } = e.value
-      return `+${coinsEach}🪙 alla costruzione e +${vpEach}🏆 a fine partita, per ogni carta ${COLOR_LABEL[color]} ${COLOR_NAME[color]} in città`
+      return (
+        <>
+          +{coinsEach}
+          <ImgIcon name="coin" size={12} title="monete" /> alla costruzione e +{vpEach}🏆 a fine partita, per ogni carta {colorIconNode(color)}{' '}
+          {COLOR_NAME[color]} in città
+        </>
+      )
     }
     case 'coins_and_vp_per_wonder_stage':
-      return `+${e.value.coinsEach}🪙 e +${e.value.vpEach}🏆 per ogni stadio della tua Meraviglia`
+      return (
+        <>
+          +{e.value.coinsEach}
+          <ImgIcon name="coin" size={12} title="monete" /> e +{e.value.vpEach}🏆 per ogni stadio della tua Meraviglia
+        </>
+      )
     case 'science_choice':
       return `1 simbolo scientifico a scelta 🧭⚙️📝`
     default:
@@ -231,7 +314,11 @@ function cardEffectLabel(card) {
 function guildEffectLabel(card) {
   switch (card.scoringKind) {
     case 'per_color_in_neighbors':
-      return `+${card.scoringValue.vpEach}🏆 per ogni carta ${COLOR_LABEL[card.scoringValue.color]} ${COLOR_NAME[card.scoringValue.color]} nelle città dei vicini`
+      return (
+        <>
+          +{card.scoringValue.vpEach}🏆 per ogni carta {colorIconNode(card.scoringValue.color)} {COLOR_NAME[card.scoringValue.color]} nelle città dei vicini
+        </>
+      )
     case 'per_wonder_stage_self_and_neighbors':
       return `+${card.scoringValue.vpEach}🏆 per ogni stadio Meraviglia (tuo + vicini)`
     case 'all_wonder_stages_flat':
@@ -255,11 +342,31 @@ function wonderStageLabel(stage) {
     case 'vp':
       return `+${stage.effectValue}🏆`
     case 'coins':
-      return `+${stage.effectValue}🪙`
+      return (
+        <>
+          +{stage.effectValue}
+          <ImgIcon name="coin" size={12} title="monete" />
+        </>
+      )
     case 'vp_and_coins':
-      return `+${stage.effectValue.vp}🏆 +${stage.effectValue.coins}🪙`
+      return (
+        <>
+          +{stage.effectValue.vp}🏆 +{stage.effectValue.coins}
+          <ImgIcon name="coin" size={12} title="monete" />
+        </>
+      )
     case 'produce_choice':
-      return `+1 a scelta: ${stage.effectValue.map((r) => RESOURCE_ICON[r]).join(' ')}`
+      return (
+        <>
+          +1 a scelta:{' '}
+          {stage.effectValue.map((r, i) => (
+            <span key={r}>
+              {i > 0 ? ' ' : ''}
+              {resIconNode(r)}
+            </span>
+          ))}
+        </>
+      )
     case 'military':
       return `+${stage.effectValue}⚔️`
     case 'science':
@@ -267,7 +374,17 @@ function wonderStageLabel(stage) {
         ? `1 simbolo scientifico a scelta 🧭⚙️📝`
         : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
     case 'trade_discount':
-      return `Sconto commercio: ${stage.effectValue.resources.map((r) => RESOURCE_ICON[r]).join(' ')}`
+      return (
+        <>
+          Sconto commercio:{' '}
+          {stage.effectValue.resources.map((r, i) => (
+            <span key={r}>
+              {i > 0 ? ' ' : ''}
+              {resIconNode(r)}
+            </span>
+          ))}
+        </>
+      )
     case 'build_from_hand_free':
       return `Costruisci gratis dalla mano (1 volta/Epoca)`
     case 'build_from_discard':
@@ -915,13 +1032,22 @@ export default function Game({ profile }) {
                 🛡️{live.military}(⚔️{militaryStrength})
               </span>
               <span>
-                💰{live.treasury}(🪙{p.coins})
+                💰{live.treasury}(<ImgIcon name="coin" size={12} title="monete" />
+                {p.coins})
               </span>
               <span>🏛️{live.wonder}</span>
-              <span>🔵{live.blue}</span>
-              <span>🟡{live.yellow}</span>
-              <span>🟢{live.green}</span>
-              <span>🟣{live.purple}</span>
+              <span>
+                <Icon name="color_blue" size={12} /> {live.blue}
+              </span>
+              <span>
+                <Icon name="color_yellow" size={12} /> {live.yellow}
+              </span>
+              <span>
+                <Icon name="color_green" size={12} /> {live.green}
+              </span>
+              <span>
+                <Icon name="color_purple" size={12} /> {live.purple}
+              </span>
               <span style={{ fontWeight: 700, color: '#3d3527', marginLeft: 'auto' }}>{live.total}🏆</span>
             </div>
           )}
@@ -937,7 +1063,7 @@ export default function Game({ profile }) {
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontWeight: 700 }}>
-              <span>{RESOURCE_ICON[wonder?.startResource]}</span>
+              <span>{resIconNode(wonder?.startResource)}</span>
               <span>
                 🏛️ {wonder?.name} ({p.wonder_side})
               </span>
@@ -954,7 +1080,7 @@ export default function Game({ profile }) {
                     .map(([r, n]) => (
                       <span key={r} style={{ marginRight: 6 }}>
                         +{n}
-                        {RESOURCE_ICON[r]}
+                        {resIconNode(r)}
                       </span>
                     ))
                 )}
@@ -965,7 +1091,13 @@ export default function Game({ profile }) {
                   <span style={{ color: '#a89b86' }}>🔀 A scelta: </span>
                   {production.choiceGenerators.map((gen, i) => (
                     <span key={i} style={{ marginRight: 6 }}>
-                      +1 {gen.map((r) => RESOURCE_ICON[r]).join('/')}
+                      +1{' '}
+                      {gen.map((r, j) => (
+                        <span key={r}>
+                          {j > 0 ? '/' : ''}
+                          {resIconNode(r)}
+                        </span>
+                      ))}
                     </span>
                   ))}
                 </div>
@@ -1017,7 +1149,7 @@ export default function Game({ profile }) {
                   .filter((color) => (cardsByColor[color] || []).length > 0)
                   .map((color) => (
                     <span key={color} style={{ marginRight: 6 }}>
-                      {COLOR_LABEL[color]}
+                      <Icon name={`color_${color}`} size={12} />
                       {cardsByColor[color].length}
                     </span>
                   ))}
@@ -1049,7 +1181,7 @@ export default function Game({ profile }) {
                               }}
                             >
                               <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
-                                {COLOR_LABEL[color]} {card.name}
+                                <Icon name={`color_${color}`} size={12} /> {card.name}
                               </div>
                               <div style={{ fontSize: '0.66rem', color: '#3d3527' }}>{effectLabel(card)}</div>
                               {chainLabel(card).map((line, i) => (
@@ -1211,10 +1343,18 @@ export default function Game({ profile }) {
                   <th>🛡️ Mil.</th>
                   <th>💰 Tesoro</th>
                   <th>🏛️ Merav.</th>
-                  <th>🔵 Blu</th>
-                  <th>🟡 Gialle</th>
-                  <th>🟢 Verdi</th>
-                  <th>🟣 Viola</th>
+                  <th>
+                    <Icon name="color_blue" size={13} /> Blu
+                  </th>
+                  <th>
+                    <Icon name="color_yellow" size={13} /> Gialle
+                  </th>
+                  <th>
+                    <Icon name="color_green" size={13} /> Verdi
+                  </th>
+                  <th>
+                    <Icon name="color_purple" size={13} /> Viola
+                  </th>
                   <th>🏆 Totale</th>
                 </tr>
               </thead>
@@ -1338,7 +1478,7 @@ export default function Game({ profile }) {
                       style={{ border: '1px solid #e4ddcc', borderRadius: 10, padding: 10, width: 190, cursor: 'pointer', background: '#fff' }}
                     >
                       <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
-                        {COLOR_LABEL[card.color]} {card.name}
+                        <Icon name={`color_${card.color}`} size={12} /> {card.name}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 2 }}>{effectLabel(card)}</div>
                     </div>
@@ -1386,6 +1526,24 @@ export default function Game({ profile }) {
                 const tradeForced = tradeNeeded && tradeOpts.canLeft !== tradeOpts.canRight
                 const forcedSide = tradeForced ? (tradeOpts.canLeft ? 'left' : 'right') : null
                 const effectivePreference = tradeForced ? forcedSide : buyPreference
+                // Controllo conservativo: usa la STESSA funzione che
+                // bloccherebbe comunque l'azione se cliccata, quindi zero
+                // rischio di negare per errore una costruzione valida —
+                // già considera produzione propria, commercio (con
+                // sconti), concatenazioni gratuite. Nel dubbio (es.
+                // errore imprevisto nel calcolo) resta cliccabile.
+                let buildImpossible = false
+                try {
+                  buildImpossible = !canBuildCard(cardId, myPlayer, leftNeighbor, rightNeighbor).possible
+                } catch {
+                  buildImpossible = false
+                }
+                let wonderImpossible = false
+                try {
+                  wonderImpossible = !canBuildWonderStage(myPlayer, leftNeighbor, rightNeighbor).possible
+                } catch {
+                  wonderImpossible = false
+                }
                 return (
                   <div
                     key={cardId}
@@ -1404,7 +1562,7 @@ export default function Game({ profile }) {
                     }}
                   >
                     <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
-                      {COLOR_LABEL[card.color]} {card.name}
+                      <Icon name={`color_${card.color}`} size={12} /> {card.name}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: '#5a5142' }}>Costo: {costLabel(card.cost)}</div>
                     <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 2 }}>{effectLabel(card)}</div>
@@ -1458,7 +1616,9 @@ export default function Game({ profile }) {
                         ) : (
                           <>
                             <button
-                              style={pillButton}
+                              style={{ ...pillButton, opacity: buildImpossible && !bundleMode ? 0.4 : 1, cursor: buildImpossible && !bundleMode ? 'not-allowed' : 'pointer' }}
+                              disabled={buildImpossible && !bundleMode}
+                              title={buildImpossible && !bundleMode ? 'Non costruibile: risorse insufficienti (nemmeno comprando dai vicini)' : undefined}
                               onClick={() =>
                                 bundleMode && !bundlePrimaryChoice
                                   ? setBundlePrimaryChoice({ cardId, action: 'build' })
@@ -1468,7 +1628,12 @@ export default function Game({ profile }) {
                               🏗️ Costruisci edificio
                             </button>
                             <button
-                              style={pillButton}
+                              style={{
+                                ...pillButton,
+                                opacity: wonderImpossible && !bundleMode && !nextStageGivesDiscardBuild ? 0.4 : 1,
+                                cursor: wonderImpossible && !bundleMode && !nextStageGivesDiscardBuild ? 'not-allowed' : 'pointer'
+                              }}
+                              disabled={wonderImpossible && !bundleMode && !nextStageGivesDiscardBuild}
                               onClick={() => {
                                 if (nextStageGivesDiscardBuild) {
                                   setDiscardPicker({ cardId, action: 'wonder' })
@@ -1478,7 +1643,11 @@ export default function Game({ profile }) {
                                   chooseAction(cardId, 'wonder', effectivePreference, bundlePrimaryChoice, bundleMode)
                                 }
                               }}
-                              title={nextWonderStageLabel}
+                              title={
+                                wonderImpossible && !bundleMode && !nextStageGivesDiscardBuild
+                                  ? 'Stadio non costruibile: risorse insufficienti (nemmeno comprando dai vicini)'
+                                  : nextWonderStageLabel
+                              }
                             >
                               🏛️ Stadio Meraviglia{nextWonderStageLabel ? ` (${nextWonderStageLabel})` : ''}
                             </button>
@@ -1490,7 +1659,8 @@ export default function Game({ profile }) {
                                   : chooseAction(cardId, 'discard', null, bundlePrimaryChoice, bundleMode)
                               }
                             >
-                              💰 Vendi (+3🪙)
+                              💰 Vendi (+3
+                              <ImgIcon name="coin" size={12} title="monete" />)
                             </button>
                           </>
                         )}
