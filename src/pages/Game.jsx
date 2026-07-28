@@ -579,6 +579,27 @@ export default function Game({ profile }) {
     const interval = setInterval(() => setNowTick(Date.now()), 1000)
     return () => clearInterval(interval)
   }, [])
+
+  // Durata dell'ultimo turno: tracciata SOLO localmente nel browser
+  // (nessuna colonna nuova nel database) — quando cambia game.turn_number
+  // (o l'Epoca), calcola quanto è durato il turno appena chiuso e lo
+  // ricorda. Limite noto: essendo solo locale, si azzera se questa
+  // scheda viene ricaricata a metà partita (non ha memoria di prima).
+  const turnStartRef = useRef(Date.now())
+  const turnKeyRef = useRef(null)
+  const [lastTurnDuration, setLastTurnDuration] = useState(null)
+  useEffect(() => {
+    if (!game || game.status !== 'playing') return
+    const key = `${game.age}-${game.turn_number}`
+    if (turnKeyRef.current !== null && turnKeyRef.current !== key) {
+      setLastTurnDuration(Date.now() - turnStartRef.current)
+    }
+    if (turnKeyRef.current !== key) {
+      turnKeyRef.current = key
+      turnStartRef.current = Date.now()
+    }
+  }, [game?.age, game?.turn_number, game?.status])
+
   const resolvingRef = useRef(null)
   const advancingRef = useRef(false)
   const dealingRef = useRef(false)
@@ -1547,39 +1568,42 @@ export default function Game({ profile }) {
               {WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).map((id) => (
                 <div key={id} style={{ border: '1px solid #e4ddcc', borderRadius: 10, padding: 8 }}>
                   <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                    {WONDERS[id].name} <span style={{ fontWeight: 400, color: '#5a5142' }}>({wonderStartResourceLabel(id)} di partenza)</span>
+                    🏛️ {WONDERS[id].name} <span style={{ fontWeight: 400, color: '#5a5142' }}>({wonderStartResourceLabel(id)} di partenza)</span>
                   </div>
-                  {['A', 'B'].map((side) => (
-                    <div key={side} style={{ marginBottom: 6 }}>
-                      <button style={pillButton} onClick={() => chooseWonder(id, side)}>
-                        Lato {side} {WONDER_SIDE_ICON[side]}
-                      </button>
-                      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                        {WONDERS[id].sides[side].stages.map((s, i) => (
-                          <div
-                            key={i}
-                            style={{
-                              flex: 1,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 2,
-                              background: '#fff',
-                              border: '1px solid #e4ddcc',
-                              borderRadius: 6,
-                              padding: '4px 4px',
-                              fontSize: '0.62rem'
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span>{costLabel(s.cost)}</span>
-                              <span>{STAGE_EMOJI[i + 1] || i + 1}</span>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    {['A', 'B'].map((side) => (
+                      <div key={side} style={{ flex: 1, minWidth: 0 }}>
+                        <button style={pillButton} onClick={() => chooseWonder(id, side)}>
+                          Lato {side} {WONDER_SIDE_ICON[side]}
+                        </button>
+                        <div style={{ display: 'flex', gap: 3, marginTop: 4 }}>
+                          {WONDERS[id].sides[side].stages.map((s, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 2,
+                                background: '#fff',
+                                border: '1px solid #e4ddcc',
+                                borderRadius: 6,
+                                padding: '3px 2px',
+                                fontSize: '0.56rem'
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span>{costLabel(s.cost)}</span>
+                                <span>{STAGE_EMOJI[i + 1] || i + 1}</span>
+                              </div>
+                              <div style={{ textAlign: 'center' }}>{wonderStageLabel(s)}</div>
                             </div>
-                            <div style={{ textAlign: 'center' }}>{wonderStageLabel(s)}</div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               ))}
               {WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).length === 0 && (
@@ -1705,8 +1729,9 @@ export default function Game({ profile }) {
           </h1>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
             <span style={{ fontSize: '0.85rem', color: '#5a5142' }}>Stanza: {game.room_code}</span>
-            <span style={{ fontSize: '0.85rem', color: '#5a5142' }} title="Tempo trascorso dall'avvio della partita">
+            <span style={{ fontSize: '0.85rem', color: '#5a5142' }} title="Tempo trascorso dall'avvio della partita (tra parentesi: durata dell'ultimo turno, tracciata solo su questa scheda del browser)">
               ⏱️ {formatElapsed(nowTick - new Date(game.started_at).getTime())}
+              {lastTurnDuration != null && <> ({formatElapsed(lastTurnDuration)})</>}
             </span>
             <button onClick={() => navigate('/')} style={linkText}>
               ← Lobby
