@@ -304,6 +304,21 @@ function costLabel(cost = {}) {
   return parts.reduce((acc, p, i) => (i === 0 ? [p] : [...acc, ' ', p]), [])
 }
 
+// Variante SOLO TESTO di costLabel (emoji anche per pietra/legno/monete,
+// mai icone SVG) — da usare SOLO dove serve per forza una stringa
+// semplice (attributi title, tooltip nativi del browser), che non
+// possono contenere elementi React.
+function costLabelText(cost = {}) {
+  const parts = []
+  if (cost.coins) parts.push(`${cost.coins}🪙`)
+  for (const [r, n] of Object.entries(cost)) {
+    if (r === 'coins') continue
+    const icon = r === 'stone' ? '🪨' : r === 'wood' ? '🪵' : RESOURCE_ICON[r] || r
+    parts.push(`${n}${icon}`)
+  }
+  return parts.length ? parts.join(' ') : 'Gratis'
+}
+
 // Risorsa come nodo React: icona SVG per pietra/legno (fornite
 // dall'utente), emoji per le altre (nessun problema di compatibilità).
 function resIconNode(r, key) {
@@ -497,6 +512,49 @@ function wonderStageLabel(stage, neighbors = {}) {
   }
 }
 
+// Variante SOLO TESTO di wonderStageLabel (emoji anche per pietra/legno/
+// monete, mai icone SVG) — da usare SOLO dove serve per forza una
+// stringa semplice (attributi title), che non può contenere JSX.
+function iconTextFor(r) {
+  return r === 'stone' ? '🪨' : r === 'wood' ? '🪵' : RESOURCE_ICON[r] || r
+}
+function wonderStageLabelText(stage, neighbors = {}) {
+  switch (stage.effectKind) {
+    case 'vp':
+      return `+${stage.effectValue}🏆`
+    case 'coins':
+      return `+${stage.effectValue}🪙`
+    case 'vp_and_coins':
+      return `+${stage.effectValue.vp}🏆 +${stage.effectValue.coins}🪙`
+    case 'produce_choice':
+      return `+1 a scelta: ${stage.effectValue.map(iconTextFor).join(' ')}`
+    case 'military':
+      return `+${stage.effectValue}⚔️`
+    case 'science':
+      return stage.effectValue === 1
+        ? `1 simbolo scientifico a scelta 🧭⚙️📝`
+        : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
+    case 'trade_discount': {
+      const hasLeftW = stage.effectValue.neighbors.includes('left')
+      const hasRightW = stage.effectValue.neighbors.includes('right')
+      const icons = stage.effectValue.resources.map(iconTextFor).join(' ')
+      const left = hasLeftW ? `◄${neighbors.left ? `(${neighbors.left})` : ''}` : ''
+      const right = hasRightW ? `${neighbors.right ? `(${neighbors.right})` : ''}►` : ''
+      return `1🪙 per acquistare: ${left}${icons}${right}`
+    }
+    case 'build_from_hand_free':
+      return `Costruisci gratis dalla mano (1 volta/Epoca)`
+    case 'build_from_discard':
+      return `Costruisci gratis dagli scarti`
+    case 'play_last_card':
+      return `Puoi giocare l'ultima carta di ogni Epoca`
+    case 'copy_guild':
+      return `Copia una Gilda di un vicino a fine partita`
+    default:
+      return ''
+  }
+}
+
 export default function Game({ profile }) {
   const { gameId } = useParams()
   const navigate = useNavigate()
@@ -614,6 +672,10 @@ export default function Game({ profile }) {
 
   async function chooseWonder(wonderId, side) {
     await supabase.from('players').update({ wonder_id: wonderId, wonder_side: side }).eq('id', myPlayer.id)
+  }
+
+  async function cancelWonder() {
+    await supabase.from('players').update({ wonder_id: null, wonder_side: null }).eq('id', myPlayer.id)
   }
 
   async function startGame() {
@@ -1228,7 +1290,7 @@ export default function Game({ profile }) {
               title="Riepilogo dell'ultimo turno risolto: azione, acquisti dai vicini (◄ sinistro, ► destro), monete incassate, saldo prima→dopo"
               style={{ fontSize: '0.7rem', color: '#5a5142', marginTop: 4 }}
             >
-              <span style={{ color: '#a89b86' }}>↩ Turno scorso: </span>
+              <span style={{ color: '#a89b86' }}>↩ Turno precedente: </span>
               {lastTurnSummary(p.last_turn_log)}
             </div>
           )}
@@ -1441,7 +1503,7 @@ export default function Game({ profile }) {
     const canStart = numPlayers >= 3 && numPlayers <= 7 && players.every((p) => p.wonder_id)
     return (
       <div style={page}>
-        <div style={{ ...cardWide, width: 720 }}>
+        <div style={{ ...cardWide, width: 820 }}>
           <h1 style={title}>Stanza {game.room_code}</h1>
           <p style={{ textAlign: 'center', color: '#5a5142', marginTop: -12 }}>
             {numPlayers} giocator{numPlayers === 1 ? 'e' : 'i'} (min. 3, max. 7)
@@ -1458,34 +1520,73 @@ export default function Game({ profile }) {
             ))}
           </div>
 
-          {!myPlayer.wonder_id && (
-            <div>
-              <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>Scegli la tua Meraviglia:</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-                {WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).map((id) => (
-                  <div key={id} style={{ border: '1px solid #e4ddcc', borderRadius: 10, padding: 8 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                      {WONDERS[id].name} <span style={{ fontWeight: 400, color: '#5a5142' }}>({wonderStartResourceLabel(id)} di partenza)</span>
-                    </div>
-                    {['A', 'B'].map((side) => (
-                      <div key={side} style={{ marginBottom: 4 }}>
-                        <button
-                          style={pillButton}
-                          onClick={() => chooseWonder(id, side)}
-                          title={WONDERS[id].sides[side].stages.map((s, i) => `Stadio ${STAGE_EMOJI[i + 1] || i + 1}: ${costLabel(s.cost)} → ${wonderStageLabel(s)}`).join(' | ')}
-                        >
-                          Lato {side}
-                        </button>
-                        <span style={{ fontSize: '0.7rem', color: '#5a5142', marginLeft: 6 }}>
-                          {WONDERS[id].sides[side].stages.map((s, i) => `${STAGE_EMOJI[i + 1] || i + 1}: ${costLabel(s.cost)}→${wonderStageLabel(s)}`).join(' · ')}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
+          <div>
+            {myPlayer.wonder_id && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  border: '2px solid #8a6a48',
+                  borderRadius: 10,
+                  padding: '6px 10px',
+                  marginBottom: 10
+                }}
+              >
+                <span>
+                  La tua scelta: <strong>{WONDERS[myPlayer.wonder_id].name}</strong> {WONDER_SIDE_ICON[myPlayer.wonder_side]}
+                </span>
+                <button style={secondaryButton} onClick={cancelWonder}>
+                  Annulla scelta
+                </button>
               </div>
+            )}
+
+            <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>Meraviglie disponibili:</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+              {WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).map((id) => (
+                <div key={id} style={{ border: '1px solid #e4ddcc', borderRadius: 10, padding: 8 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                    {WONDERS[id].name} <span style={{ fontWeight: 400, color: '#5a5142' }}>({wonderStartResourceLabel(id)} di partenza)</span>
+                  </div>
+                  {['A', 'B'].map((side) => (
+                    <div key={side} style={{ marginBottom: 6 }}>
+                      <button style={pillButton} onClick={() => chooseWonder(id, side)}>
+                        Lato {side} {WONDER_SIDE_ICON[side]}
+                      </button>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                        {WONDERS[id].sides[side].stages.map((s, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              flex: 1,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 2,
+                              background: '#fff',
+                              border: '1px solid #e4ddcc',
+                              borderRadius: 6,
+                              padding: '4px 4px',
+                              fontSize: '0.62rem'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>{costLabel(s.cost)}</span>
+                              <span>{STAGE_EMOJI[i + 1] || i + 1}</span>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>{wonderStageLabel(s)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).length === 0 && (
+                <p style={{ color: '#a89b86', fontSize: '0.85rem' }}>Tutte le Meraviglie sono state scelte.</p>
+              )}
             </div>
-          )}
+          </div>
 
           {canStart && (
             <button style={{ ...primaryButton, marginTop: 16 }} onClick={startGame}>
@@ -1583,7 +1684,7 @@ export default function Game({ profile }) {
   const iAmReady = myPlayer.ready_this_turn
   const myWonderSide = WONDERS[myPlayer.wonder_id]?.sides[myPlayer.wonder_side]
   const myNextStage = myWonderSide?.stages[myPlayer.wonder_stages_built || 0]
-  const nextWonderStageLabel = myNextStage ? `${costLabel(myNextStage.cost)} → ${wonderStageLabel(myNextStage, myNeighborNicknames)}` : null
+  const nextWonderStageLabel = myNextStage ? `${costLabelText(myNextStage.cost)} → ${wonderStageLabelText(myNextStage, myNeighborNicknames)}` : null
   const isLastTurnOfAge = game.turn_number >= 6
   const iCanPlayLastCard = isLastTurnOfAge && hasWonderStageAbility(myPlayer, 'play_last_card') && hand.length === 2
   const iCanFreeBuild =
