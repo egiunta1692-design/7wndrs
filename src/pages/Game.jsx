@@ -1348,7 +1348,7 @@ export default function Game({ profile }) {
                                 borderRadius: 6,
                                 padding: '3px 16px 12px 6px',
                                 minWidth: 130,
-                                maxWidth: 170
+                                maxWidth: 150
                               }}
                             >
                               <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
@@ -1582,7 +1582,7 @@ export default function Game({ profile }) {
 
   return (
     <div style={page}>
-      <div style={{ ...cardWide, width: '96vw', maxWidth: 1700 }}>
+      <div style={{ ...cardWide, width: '96vw' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <h1 style={{ ...title, margin: 0 }}>
             Epoca {AGE_ROMAN[game.age]} · Turno {game.turn_number}/6
