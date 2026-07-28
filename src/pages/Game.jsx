@@ -161,7 +161,7 @@ function lastTurnSummary(log) {
     if (a.coinCost)
       bits.push(
         <span key="cost">
-          -{a.coinCost}
+          spesi -{a.coinCost}
           <ImgIcon name="coin" size={11} />
         </span>
       )
@@ -201,11 +201,7 @@ function tradeDiscountSummary(player) {
   const leftArr = [...d.left]
   const rightArr = [...d.right]
   if (leftArr.length === 0 && rightArr.length === 0) return null
-  const sameSet = leftArr.length === rightArr.length && leftArr.every((r) => rightArr.includes(r))
   const iconsRow = (arr) => arr.map((r) => <span key={r}>{resIconNode(r)}</span>)
-  if (leftArr.length && rightArr.length && sameSet) {
-    return <>↔️{iconsRow(leftArr)}</>
-  }
   return (
     <>
       {leftArr.length > 0 && <span>◄{iconsRow(leftArr)}</span>}
