@@ -80,6 +80,7 @@ create table if not exists players (
   turn_applied int not null default 0,                -- ultimo numero di turno (assoluto entro l'Epoca) per cui questo giocatore ha GIA' applicato la propria azione — segnale robusto anti-race per capire quando TUTTI hanno finito, indipendente dai ritardi di realtime (vedi Game.jsx)
   final_score jsonb,
   free_build_used_age int,                            -- ultima Epoca in cui e' stato usato il potere "costruisci gratis dalla mano" (Babilonia lato B, 1 volta/Epoca) — null se mai usato
+  last_turn_log jsonb,                                -- riepilogo PUBBLICO dell'ultima azione risolta (turno, azione, carta, acquisti da chi/quanto, monete incassate dai vicini, saldo prima/dopo) — serve sia a verificare che non ci siano malfunzionamenti sia come informazione utile ai giocatori
   unique (game_id, user_id)
 );
 

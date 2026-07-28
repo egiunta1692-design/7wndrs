@@ -112,6 +112,71 @@ function chainLabel(card) {
 // tipo Mercato/Stazioni + stadi Meraviglia) in forma compatta per la
 // vista collassata: ◄ = dal vicino sinistro, ► = dal destro, ↔ = da
 // entrambi se le risorse scontate coincidono.
+// Descrive in forma compatta il riepilogo pubblico dell'ultimo turno
+// risolto di un giocatore (vedi last_turn_log, scritto in Game.jsx al
+// momento della risoluzione) — utile sia per verificare a colpo
+// d'occhio che acquisti/incassi tornino, sia come informazione per gli
+// altri giocatori su cosa è appena successo.
+function lastTurnSummary(log) {
+  if (!log) return null
+  const actionIcon = { build: '🏗️', wonder: '🏛️', discard: '💰' }
+  const parts = []
+  for (const a of log.actions) {
+    const card = a.cardId ? getCardData(a.cardId) : null
+    const bits = [actionIcon[a.action] || '', card?.name || (a.action === 'wonder' ? 'Stadio Meraviglia' : '')]
+    if (a.purchases?.length) {
+      const left = a.purchases.filter((p) => p.neighbor === 'left')
+      const right = a.purchases.filter((p) => p.neighbor === 'right')
+      if (left.length)
+        bits.push(
+          <span key="l">
+            ◄
+            {left.map((p, i) => (
+              <span key={i}>{resIconNode(p.resource)}</span>
+            ))}
+          </span>
+        )
+      if (right.length)
+        bits.push(
+          <span key="r">
+            {right.map((p, i) => (
+              <span key={i}>{resIconNode(p.resource)}</span>
+            ))}
+            ►
+          </span>
+        )
+    }
+    if (a.bonusCoins)
+      bits.push(
+        <span key="bonus">
+          +{a.bonusCoins}
+          <ImgIcon name="coin" size={11} />
+        </span>
+      )
+    parts.push(
+      <span key={parts.length} style={{ marginRight: 8 }}>
+        {bits}
+      </span>
+    )
+  }
+  return (
+    <span>
+      {parts}
+      {log.paymentsReceived > 0 && (
+        <span style={{ marginRight: 8 }}>
+          incassati +{log.paymentsReceived}
+          <ImgIcon name="coin" size={11} />
+        </span>
+      )}
+      <span style={{ color: '#a89b86' }}>
+        ({log.coinsBefore}
+        <ImgIcon name="coin" size={11} />→{log.coinsAfter}
+        <ImgIcon name="coin" size={11} />)
+      </span>
+    </span>
+  )
+}
+
 function tradeDiscountSummary(player) {
   const d = computeTradeDiscounts(player)
   const leftArr = [...d.left]
@@ -764,6 +829,26 @@ export default function Game({ profile }) {
           updatedPublic.coins = 0
         }
 
+        // Riepilogo PUBBLICO di questo turno (chi ha giocato cosa, cosa ha
+        // comprato da chi e a che prezzo, quanto ha incassato dai vicini,
+        // saldo prima/dopo) — salvato sulla riga pubblica del giocatore,
+        // serve sia a verificare che il commercio funzioni correttamente
+        // sia come informazione trasparente per tutti in tavola.
+        const actions = prepared.bundle
+          ? [
+              { action: prepared.primary.action, cardId: prepared.primary.cardId, coinCost: prepared.primary.coinCost, bonusCoins: prepared.primary.bonusCoins, purchases: prepared.primary.purchases || [] },
+              { action: prepared.bonus.action, cardId: prepared.bonus.cardId, coinCost: prepared.bonus.coinCost, bonusCoins: prepared.bonus.bonusCoins, purchases: prepared.bonus.purchases || [], bonusVia: prepared.kind }
+            ]
+          : [{ action: prepared.action, cardId: prepared.cardId, coinCost: prepared.coinCost, bonusCoins: prepared.bonusCoins, purchases: prepared.purchases || [] }]
+        const lastTurnLog = {
+          turn: game.turn_number,
+          age: game.age,
+          actions,
+          paymentsReceived: owedToMe,
+          coinsBefore: baselinePlayer.coins,
+          coinsAfter: updatedPublic.coins
+        }
+
         // Scrittura atomica: procede solo se turn_applied non è già
         // arrivato a questo turno (protegge da doppia applicazione).
         const { data: claimed, error: claimError } = await supabase
@@ -774,6 +859,7 @@ export default function Game({ profile }) {
             wonder_stages_built: updatedPublic.wonder_stages_built,
             ready_this_turn: false,
             turn_applied: game.turn_number,
+            last_turn_log: lastTurnLog,
             ...(prepared?.kind === 'free_build' ? { free_build_used_age: game.age } : {})
           })
           .eq('id', myPlayer.id)
@@ -1056,6 +1142,16 @@ export default function Game({ profile }) {
                 <Icon name="color_purple" size={12} /> {live.purple}
               </span>
               <span style={{ fontWeight: 700, color: '#3d3527', marginLeft: 'auto' }}>{live.total}🏆</span>
+            </div>
+          )}
+
+          {p.last_turn_log && (
+            <div
+              title="Riepilogo dell'ultimo turno risolto: azione, acquisti dai vicini (◄ sinistro, ► destro), monete incassate, saldo prima→dopo"
+              style={{ fontSize: '0.7rem', color: '#5a5142', marginTop: 4 }}
+            >
+              <span style={{ color: '#a89b86' }}>Turno scorso: </span>
+              {lastTurnSummary(p.last_turn_log)}
             </div>
           )}
 
