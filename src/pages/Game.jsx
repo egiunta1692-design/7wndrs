@@ -1321,7 +1321,7 @@ export default function Game({ profile }) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.72rem', color: '#5a5142', marginTop: 6 }}>
               <div title="Risorse fisse prodotte a ogni turno">
-                <span style={{ color: '#a89b86' }}>Produzione: </span>
+                <span style={{ color: '#3d3527' }}>Produzione: </span>
                 {Object.entries(production.fixed).filter(([, n]) => n > 0).length === 0 ? (
                   <span>—</span>
                 ) : (
@@ -1338,7 +1338,7 @@ export default function Game({ profile }) {
 
               {production.choiceGenerators.length > 0 && (
                 <div title="Risorse producibili a scelta (1 unità a turno per ciascun generatore)">
-                  <span style={{ color: '#a89b86' }}>A scelta: </span>
+                  <span style={{ color: '#3d3527' }}>A scelta: </span>
                   {production.choiceGenerators.map((gen, i) => (
                     <span key={i} style={{ marginRight: 6 }}>
                       +1{' '}
@@ -1357,14 +1357,14 @@ export default function Game({ profile }) {
                 <div
                   title={`Sconti commercio attivi: ◄ vicino sinistro${pNeighborNicknames.left ? ` (${pNeighborNicknames.left})` : ''}, ► destro${pNeighborNicknames.right ? ` (${pNeighborNicknames.right})` : ''}`}
                 >
-                  <span style={{ color: '#a89b86' }}>Commercio: </span>
+                  <span style={{ color: '#3d3527' }}>Commercio: </span>
                   {trade}
                 </div>
               )}
 
               {(science.fixed.compass > 0 || science.fixed.gear > 0 || science.fixed.tablet > 0 || science.choices > 0) && (
                 <div title="Simboli scientifici accumulati finora (i punti si calcolano solo a fine partita)">
-                  <span style={{ color: '#a89b86' }}>Scienza: </span>
+                  <span style={{ color: '#3d3527' }}>Scienza: </span>
                   {science.fixed.compass > 0 && (
                     <span style={{ marginRight: 6 }}>
                       {SCIENCE_ICON.compass}×{science.fixed.compass}
@@ -1396,7 +1396,7 @@ export default function Game({ profile }) {
                 style={{ cursor: 'pointer' }}
                 title="Numero di carte per colore — utile per le Gilde che contano le carte dei vicini. Clic per vedere le carte per esteso."
               >
-                <span style={{ color: '#a89b86' }}>{isExpanded ? '👇' : '👉'} Carte: </span>
+                <span style={{ color: '#3d3527' }}>{isExpanded ? '👇' : '👉'} Carte: </span>
                 {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
                   .filter((color) => (cardsByColor[color] || []).length > 0)
                   .map((color) => (
@@ -1756,14 +1756,13 @@ export default function Game({ profile }) {
           {/* Colonna sinistra: il tuo pannello + la tua mano, con scroll
               indipendente se il contenuto supera l'altezza disponibile. */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 'calc(100vh - 210px)', overflowY: 'auto', paddingRight: 4 }}>
-            {renderOnePlayer(myPlayer)}
             <div
               style={{
                 border: '2px solid #8a6a48',
                 borderRadius: 10,
                 padding: '8px 12px',
                 fontSize: '0.8rem',
-                background: '#fff'
+                background: 'linear-gradient(160deg, #7a5233 0%, #5c3d24 55%, #46301c 100%)'
               }}
             >
         {iAmReady ? (
@@ -1991,6 +1990,7 @@ export default function Game({ profile }) {
           </>
         )}
             </div>
+            {renderOnePlayer(myPlayer)}
           </div>
 
           <div style={{ width: 16, flexShrink: 0 }} />
