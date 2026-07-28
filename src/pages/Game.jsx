@@ -202,6 +202,14 @@ function tradeDiscountSummary(player) {
   const rightArr = [...d.right]
   if (leftArr.length === 0 && rightArr.length === 0) return null
   const iconsRow = (arr) => arr.map((r) => <span key={r}>{resIconNode(r)}</span>)
+  const sameSet = leftArr.length === rightArr.length && leftArr.every((r) => rightArr.includes(r))
+  if (leftArr.length && rightArr.length && sameSet) {
+    return (
+      <>
+        ◄{iconsRow(leftArr)}►
+      </>
+    )
+  }
   return (
     <>
       {leftArr.length > 0 && <span>◄{iconsRow(leftArr)}</span>}
@@ -1325,11 +1333,11 @@ export default function Game({ profile }) {
                 {Object.keys(cardsByColor).length === 0 ? (
                   <div style={{ color: '#a89b86', fontSize: '0.72rem' }}>Nessun edificio costruito ancora</div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
                       .filter((color) => cardsByColor[color])
                       .map((color) => (
-                        <div key={color} style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        <div key={color} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           {cardsByColor[color].map((card) => (
                             <div
                               key={card.id}
