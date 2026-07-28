@@ -161,7 +161,7 @@ function lastTurnSummary(log) {
     if (a.coinCost)
       bits.push(
         <span key="cost">
-          spesi -{a.coinCost}
+          -{a.coinCost}
           <ImgIcon name="coin" size={11} />
         </span>
       )
@@ -183,7 +183,7 @@ function lastTurnSummary(log) {
       {parts}
       {log.paymentsReceived > 0 && (
         <span style={{ marginRight: 10 }}>
-          incassati +{log.paymentsReceived}
+          +{log.paymentsReceived}
           <ImgIcon name="coin" size={11} />
         </span>
       )}
@@ -314,7 +314,7 @@ function colorIconNode(color, key) {
 
 // Descrizione leggibile dell'effetto di una carta Epoca (usata sia
 // nelle carte in mano che nei "chip" delle città costruite).
-function cardEffectLabel(card) {
+function cardEffectLabel(card, neighbors = {}) {
   const e = card.effect
   if (!e) return ''
   switch (e.kind) {
@@ -353,7 +353,9 @@ function cardEffectLabel(card) {
     case 'trade_discount': {
       const hasLeft = e.value.neighbors.includes('left')
       const hasRight = e.value.neighbors.includes('right')
-      const who = e.value.neighbors.map((n) => (n === 'left' ? 'sinistro' : 'destro')).join('/')
+      const who = e.value.neighbors
+        .map((n) => (n === 'left' ? `sinistro${neighbors.left ? ` (${neighbors.left})` : ''}` : `destro${neighbors.right ? ` (${neighbors.right})` : ''}`))
+        .join('/')
       return (
         <>
           1<ImgIcon name="coin" size={12} title="monete" /> per acquistare dal vicino {who}: {hasLeft && '◄'}
@@ -423,12 +425,12 @@ function guildEffectLabel(card) {
   }
 }
 
-function effectLabel(card) {
-  return card.color === 'purple' ? guildEffectLabel(card) : cardEffectLabel(card)
+function effectLabel(card, neighbors = {}) {
+  return card.color === 'purple' ? guildEffectLabel(card) : cardEffectLabel(card, neighbors)
 }
 
 // Descrizione leggibile dell'effetto di uno stadio di Meraviglia.
-function wonderStageLabel(stage) {
+function wonderStageLabel(stage, neighbors = {}) {
   switch (stage.effectKind) {
     case 'vp':
       return `+${stage.effectValue}🏆`
@@ -469,14 +471,14 @@ function wonderStageLabel(stage) {
       const hasRightW = stage.effectValue.neighbors.includes('right')
       return (
         <>
-          1<ImgIcon name="coin" size={12} title="monete" /> per acquistare: {hasLeftW && '◄'}
+          1<ImgIcon name="coin" size={12} title="monete" /> per acquistare: {hasLeftW && `◄${neighbors.left ? `(${neighbors.left})` : ''}`}
           {stage.effectValue.resources.map((r, i) => (
             <span key={r}>
               {i > 0 ? ' ' : ''}
               {resIconNode(r)}
             </span>
           ))}
-          {hasRightW && '►'}
+          {hasRightW && `${neighbors.right ? `(${neighbors.right})` : ''}►`}
         </>
       )
     }
@@ -601,6 +603,7 @@ export default function Game({ profile }) {
 
   const leftNeighbor = mySeat >= 0 ? seatToPlayer[leftNeighborSeat(mySeat, numPlayers)] : null
   const rightNeighbor = mySeat >= 0 ? seatToPlayer[rightNeighborSeat(mySeat, numPlayers)] : null
+  const myNeighborNicknames = { left: leftNeighbor?.nickname, right: rightNeighbor?.nickname }
 
   // ============================================================
   // WAITING ROOM: scelta Meraviglia + avvio partita
@@ -1143,6 +1146,11 @@ export default function Game({ profile }) {
   function renderOnePlayer(p) {
       const wonder = WONDERS[p.wonder_id]
       const side = wonder?.sides[p.wonder_side]
+      const pSeat = turnOrder.indexOf(p.id)
+      const pNeighborNicknames = {
+        left: seatToPlayer[leftNeighborSeat(pSeat, numPlayers)]?.nickname,
+        right: seatToPlayer[rightNeighborSeat(pSeat, numPlayers)]?.nickname
+      }
       const cardsByColor = {}
       for (const cardId of p.built_cards || []) {
         const card = getCardData(cardId)
@@ -1275,7 +1283,9 @@ export default function Game({ profile }) {
               )}
 
               {trade && (
-                <div title="Sconti commercio attivi: ◄ vicino sinistro, ► destro, ↔ entrambi">
+                <div
+                  title={`Sconti commercio attivi: ◄ vicino sinistro${pNeighborNicknames.left ? ` (${pNeighborNicknames.left})` : ''}, ► destro${pNeighborNicknames.right ? ` (${pNeighborNicknames.right})` : ''}`}
+                >
                   <span style={{ color: '#a89b86' }}>Commercio: </span>
                   {trade}
                 </div>
@@ -1354,7 +1364,7 @@ export default function Game({ profile }) {
                               <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
                                 <Icon name={`color_${color}`} size={12} /> {card.name}
                               </div>
-                              <div style={{ fontSize: '0.66rem', color: '#3d3527', marginTop: 4 }}>{effectLabel(card)}</div>
+                              <div style={{ fontSize: '0.66rem', color: '#3d3527', marginTop: 4 }}>{effectLabel(card, pNeighborNicknames)}</div>
                               {chainLabel(card).map((line, i) => (
                                 <div key={i} style={{ fontSize: '0.62rem', color: '#8a6a48' }}>
                                   {line}
@@ -1407,7 +1417,7 @@ export default function Game({ profile }) {
                         {STAGE_EMOJI[i + 1] || i + 1}
                       </span>
                     </div>
-                    <div style={{ textAlign: 'center' }}>{wonderStageLabel(s)}</div>
+                    <div style={{ textAlign: 'center' }}>{wonderStageLabel(s, pNeighborNicknames)}</div>
                   </div>
                 )
               })}
@@ -1568,7 +1578,7 @@ export default function Game({ profile }) {
   const iAmReady = myPlayer.ready_this_turn
   const myWonderSide = WONDERS[myPlayer.wonder_id]?.sides[myPlayer.wonder_side]
   const myNextStage = myWonderSide?.stages[myPlayer.wonder_stages_built || 0]
-  const nextWonderStageLabel = myNextStage ? `${costLabel(myNextStage.cost)} → ${wonderStageLabel(myNextStage)}` : null
+  const nextWonderStageLabel = myNextStage ? `${costLabel(myNextStage.cost)} → ${wonderStageLabel(myNextStage, myNeighborNicknames)}` : null
   const isLastTurnOfAge = game.turn_number >= 6
   const iCanPlayLastCard = isLastTurnOfAge && hasWonderStageAbility(myPlayer, 'play_last_card') && hand.length === 2
   const iCanFreeBuild =
@@ -1639,7 +1649,7 @@ export default function Game({ profile }) {
                       <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
                         <Icon name={`color_${card.color}`} size={12} /> {card.name}
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 2 }}>{effectLabel(card)}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 2 }}>{effectLabel(card, myNeighborNicknames)}</div>
                     </div>
                   )
                 })}
@@ -1722,7 +1732,7 @@ export default function Game({ profile }) {
                     <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
                       <Icon name={`color_${card.color}`} size={12} /> {card.name}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 4 }}>{effectLabel(card)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 4 }}>{effectLabel(card, myNeighborNicknames)}</div>
                     {chainLabel(card).map((line, i) => (
                       <div key={i} style={{ fontSize: '0.7rem', color: '#8a6a48', marginTop: 2 }}>
                         {line}
@@ -1749,7 +1759,13 @@ export default function Game({ profile }) {
                         {tradeNeeded && (
                           <div style={{ fontSize: '0.68rem', color: '#5a5142' }}>
                             {tradeForced ? (
-                              <>Comprerai da: {forcedSide === 'left' ? 'vicino sinistro' : 'vicino destro'} (unica opzione)</>
+                              <>
+                                Comprerai da:{' '}
+                                {forcedSide === 'left'
+                                  ? `vicino sinistro${myNeighborNicknames.left ? ` (${myNeighborNicknames.left})` : ''}`
+                                  : `vicino destro${myNeighborNicknames.right ? ` (${myNeighborNicknames.right})` : ''}`}{' '}
+                                (unica opzione)
+                              </>
                             ) : (
                               <>
                                 Se possibile compra da:{' '}
@@ -1760,8 +1776,8 @@ export default function Game({ profile }) {
                                   style={{ fontSize: '0.68rem' }}
                                 >
                                   <option value="">indifferente</option>
-                                  <option value="left">vicino sinistro</option>
-                                  <option value="right">vicino destro</option>
+                                  <option value="left">vicino sinistro{myNeighborNicknames.left ? ` (${myNeighborNicknames.left})` : ''}</option>
+                                  <option value="right">vicino destro{myNeighborNicknames.right ? ` (${myNeighborNicknames.right})` : ''}</option>
                                 </select>
                               </>
                             )}
@@ -1845,10 +1861,10 @@ export default function Game({ profile }) {
               .filter(Boolean)
               .map((p, i, arr) => (
                 <div key={p.id}>
-                  {i === 0 && <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700 }}>◄ tuo vicino sinistro</div>}
+                  {i === 0 && <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700 }}>◄ tuo vicino sinistro ({p.nickname})</div>}
                   {renderOnePlayer(p)}
                   {i === arr.length - 1 && (
-                    <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700, textAlign: 'right' }}>tuo vicino destro ►</div>
+                    <div style={{ fontSize: '0.68rem', color: '#8a6a48', fontWeight: 700, textAlign: 'right' }}>tuo vicino destro ({p.nickname}) ►</div>
                   )}
                 </div>
               ))}
