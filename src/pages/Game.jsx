@@ -1218,7 +1218,7 @@ export default function Game({ profile }) {
               title="Riepilogo dell'ultimo turno risolto: azione, acquisti dai vicini (◄ sinistro, ► destro), monete incassate, saldo prima→dopo"
               style={{ fontSize: '0.7rem', color: '#5a5142', marginTop: 4 }}
             >
-              <span style={{ color: '#a89b86' }}>Turno scorso: </span>
+              <span style={{ color: '#a89b86' }}>↩ Turno scorso: </span>
               {lastTurnSummary(p.last_turn_log)}
             </div>
           )}
@@ -1315,7 +1315,7 @@ export default function Game({ profile }) {
                 style={{ cursor: 'pointer' }}
                 title="Numero di carte per colore — utile per le Gilde che contano le carte dei vicini. Clic per vedere le carte per esteso."
               >
-                <span style={{ color: '#a89b86' }}>{isExpanded ? '▾' : '▸'} Carte: </span>
+                <span style={{ color: '#a89b86' }}>{isExpanded ? '👇' : '👉'} Carte: </span>
                 {['brown', 'grey', 'blue', 'yellow', 'red', 'green', 'purple']
                   .filter((color) => (cardsByColor[color] || []).length > 0)
                   .map((color) => (
@@ -1354,13 +1354,13 @@ export default function Game({ profile }) {
                               <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
                                 <Icon name={`color_${color}`} size={12} /> {card.name}
                               </div>
-                              <div style={{ fontSize: '0.66rem', color: '#3d3527' }}>{effectLabel(card)}</div>
+                              <div style={{ fontSize: '0.66rem', color: '#3d3527', marginTop: 4 }}>{effectLabel(card)}</div>
                               {chainLabel(card).map((line, i) => (
                                 <div key={i} style={{ fontSize: '0.62rem', color: '#8a6a48' }}>
                                   {line}
                                 </div>
                               ))}
-                              <div style={{ fontSize: '0.62rem', color: '#5a5142', marginTop: 2 }}>Costo: {costLabel(card.cost)}</div>
+                              <div style={{ fontSize: '0.62rem', color: '#5a5142', marginTop: 5 }}>Costo: {costLabel(card.cost)}</div>
                               {card.age && (
                                 <span
                                   title={`Epoca ${AGE_ROMAN[card.age]}`}
@@ -1722,13 +1722,13 @@ export default function Game({ profile }) {
                     <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
                       <Icon name={`color_${card.color}`} size={12} /> {card.name}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 2 }}>{effectLabel(card)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#3d3527', marginTop: 4 }}>{effectLabel(card)}</div>
                     {chainLabel(card).map((line, i) => (
                       <div key={i} style={{ fontSize: '0.7rem', color: '#8a6a48', marginTop: 2 }}>
                         {line}
                       </div>
                     ))}
-                    <div style={{ fontSize: '0.75rem', color: '#5a5142', marginTop: 2 }}>Costo: {costLabel(card.cost)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#5a5142', marginTop: 5 }}>Costo: {costLabel(card.cost)}</div>
                     {card.age && (
                       <span
                         title={`Epoca ${AGE_ROMAN[card.age]}`}
