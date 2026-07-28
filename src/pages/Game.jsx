@@ -1319,7 +1319,20 @@ export default function Game({ profile }) {
               </span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.72rem', color: '#5a5142', marginTop: 6 }}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 3,
+                fontSize: '0.72rem',
+                color: '#5a5142',
+                marginTop: 6,
+                background: '#fff',
+                border: '1px solid rgb(228, 221, 204)',
+                borderRadius: 6,
+                padding: 6
+              }}
+            >
               <div title="Risorse fisse prodotte a ogni turno">
                 <span style={{ color: '#3d3527' }}>Produzione: </span>
                 {Object.entries(production.fixed).filter(([, n]) => n > 0).length === 0 ? (
@@ -1776,7 +1789,7 @@ export default function Game({ profile }) {
               }}
             >
         {iAmReady ? (
-          <p style={{ textAlign: 'center', color: '#5a5142' }}>Hai scelto la tua carta — aspetto gli altri giocatori...</p>
+          <p style={{ textAlign: 'center', color: '#fff' }}>Hai scelto la tua carta — aspetto gli altri giocatori...</p>
         ) : discardPicker ? (
           <>
             <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>🏛️ Halikarnassós: scegli una carta dagli scarti da costruire gratis</p>
