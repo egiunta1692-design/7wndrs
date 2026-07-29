@@ -779,15 +779,27 @@ export default function Game({ profile }) {
   async function chooseAction(cardId, action, preference = null, bundleWith = null, bundleType = 'last_card') {
     setError(null)
     try {
+      // Rilegge freschi dal database me stesso e i miei vicini (produzione,
+      // carte costruite, monete) invece di fidarsi dello stato React —
+      // stessa cautela già usata per la mano: se questo client ha appena
+      // risolto un turno un istante fa, lo stato locale potrebbe non
+      // essersi ancora aggiornato del tutto.
+      const idsToRefresh = [myPlayer.id, leftNeighbor?.id, rightNeighbor?.id].filter(Boolean)
+      const { data: freshRows, error: freshRowsError } = await supabase.from('players').select().in('id', idsToRefresh)
+      if (freshRowsError) console.error('[chooseAction] errore rilettura giocatori freschi:', freshRowsError)
+      const freshMyPlayer = freshRows?.find((p) => p.id === myPlayer.id) || myPlayer
+      const freshLeftNeighbor = leftNeighbor ? freshRows?.find((p) => p.id === leftNeighbor.id) || leftNeighbor : null
+      const freshRightNeighbor = rightNeighbor ? freshRows?.find((p) => p.id === rightNeighbor.id) || rightNeighbor : null
+
       let prepared
       if (bundleWith && bundleType === 'free_build') {
-        prepared = prepareFreeBuildBundle(action, cardId, bundleWith.cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
+        prepared = prepareFreeBuildBundle(action, cardId, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference)
       } else if (bundleWith && bundleType === 'discard_build') {
-        prepared = prepareDiscardBuildBundle(action, cardId, bundleWith.cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
+        prepared = prepareDiscardBuildBundle(action, cardId, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference)
       } else if (bundleWith) {
-        prepared = prepareLastTurnBundle(action, cardId, bundleWith.action, bundleWith.cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
+        prepared = prepareLastTurnBundle(action, cardId, bundleWith.action, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference)
       } else {
-        prepared = prepareAction(action, cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
+        prepared = prepareAction(action, cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference)
       }
       // Rilegge la mano fresca dal database invece di fidarsi di
       // myHand.hand (stato React, che potrebbe non essere ancora stato
