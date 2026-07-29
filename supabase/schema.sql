@@ -97,6 +97,7 @@ create table if not exists player_hands (
   pending_action jsonb,                                -- { cardId, action: 'build'|'wonder'|'discard' } scelta ma non ancora applicata
   outgoing_hand jsonb,                                 -- carte che restano dopo la scelta, destinate al vicino
   outgoing_hand_for uuid,                               -- user_id del vicino destinatario di outgoing_hand
+  outgoing_hand_turn int,                                -- numero di turno a cui si riferisce outgoing_hand — chi legge deve verificare che combaci col turno che sta risolvendo, altrimenti scarta come dato vecchio (stessa protezione già usata per payments_out)
   dealt_age int,                                        -- per quale Epoca e' stata distribuita l'attuale "hand" — evita di ridistribuire piu' volte per la stessa Epoca
   payments_out jsonb not null default '{}'::jsonb,     -- { [venditoreUserId]: { amount, turn } } — quanto si deve a un vicino per risorse comprate questo turno (vedi RLS sotto: il venditore puo' leggere solo la propria voce)
   unique (game_id, user_id)

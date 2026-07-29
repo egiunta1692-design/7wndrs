@@ -755,10 +755,10 @@ export default function Game({ profile }) {
       dealingRef.current = false
       return
     }
-    const dealtRow = { ...myHand, hand, pending_action: null, outgoing_hand: null, outgoing_hand_for: null, dealt_age: game.age }
+    const dealtRow = { ...myHand, hand, pending_action: null, outgoing_hand: null, outgoing_hand_for: null, outgoing_hand_turn: null, dealt_age: game.age }
     supabase
       .from('player_hands')
-      .update({ hand, pending_action: null, outgoing_hand: null, outgoing_hand_for: null, dealt_age: game.age })
+      .update({ hand, pending_action: null, outgoing_hand: null, outgoing_hand_for: null, outgoing_hand_turn: null, dealt_age: game.age })
       .eq('id', myHand.id)
       .then(({ error }) => {
         if (error) {
@@ -789,8 +789,14 @@ export default function Game({ profile }) {
       } else {
         prepared = prepareAction(action, cardId, myPlayer, leftNeighbor, rightNeighbor, preference)
       }
+      // Rilegge la mano fresca dal database invece di fidarsi di
+      // myHand.hand (stato React, che potrebbe non essere ancora stato
+      // aggiornato se questo client ha appena risolto un turno un
+      // istante fa) — stessa cautela già usata altrove in questo file.
+      const { data: freshOwnHand } = await supabase.from('player_hands').select('hand').eq('id', myHand.id).single()
+      const currentHand = freshOwnHand?.hand ?? myHand.hand ?? []
       const playedCardIds = bundleWith ? [cardId, bundleWith.cardId] : [cardId]
-      const remainingHand = (myHand.hand || []).filter((id) => !playedCardIds.includes(id))
+      const remainingHand = currentHand.filter((id) => !playedCardIds.includes(id))
       const isLastTurnOfAge = game.turn_number >= 6
       const allPurchases = bundleWith ? [...(prepared.primary.purchases || []), ...(prepared.bonus.purchases || [])] : prepared.purchases || []
 
@@ -824,12 +830,28 @@ export default function Game({ profile }) {
           })
           throw new Error('Errore interno: destinatario della mano non trovato. Riprova, e se persiste segnalalo.')
         }
-        console.log('[chooseAction] turno', game.turn_number, 'invio mano residua a', recipient.nickname, 'seat', recipientSeat, 'user_id', recipient.user_id, 'carte:', remainingHand)
+        console.log(
+          '[chooseAction] turno',
+          game.turn_number,
+          'invio mano residua a',
+          recipient.nickname,
+          'seat',
+          recipientSeat,
+          'user_id',
+          recipient.user_id,
+          'carte:',
+          remainingHand,
+          '(mano attuale letta fresca:',
+          currentHand,
+          ')'
+        )
         update.outgoing_hand = remainingHand
         update.outgoing_hand_for = recipient.user_id
+        update.outgoing_hand_turn = game.turn_number
       } else {
         update.outgoing_hand = null
         update.outgoing_hand_for = null
+        update.outgoing_hand_turn = null
       }
       await supabase.from('player_hands').update(update).eq('id', myHand.id)
       await supabase.from('players').update({ ready_this_turn: true }).eq('id', myPlayer.id)
@@ -1044,16 +1066,20 @@ export default function Game({ profile }) {
           let newHand = []
           if (!isLastTurnOfAge) {
             // Rilettura fresca e mirata: cerca la riga che IL VICINO ha
-            // indirizzato a noi, invece di fidarsi della cache realtime.
-            // Un paio di brevi tentativi extra in caso il vicino stia
-            // ancora completando la propria scrittura in quello stesso
-            // istante (difesa in più oltre alla logica di "tutti pronti").
+            // indirizzato a noi PER QUESTO TURNO ESATTO (outgoing_hand_turn
+            // deve combaciare) — non basta più solo "indirizzata a noi",
+            // altrimenti un dato non ancora sovrascritto da un turno
+            // precedente potrebbe essere riletto per errore (causa di un
+            // bug osservato: carte che sembravano non ruotare). Un paio
+            // di brevi tentativi extra in caso il vicino stia ancora
+            // completando la propria scrittura in quello stesso istante.
             for (let attempt = 0; attempt < 5; attempt++) {
               const { data: incoming, error: incomingError } = await supabase
                 .from('player_hands')
-                .select('outgoing_hand')
+                .select('outgoing_hand, outgoing_hand_turn, user_id')
                 .eq('game_id', gameId)
                 .eq('outgoing_hand_for', myUserId)
+                .eq('outgoing_hand_turn', game.turn_number)
                 .neq('user_id', myUserId)
                 .maybeSingle()
               if (incomingError) console.error('[resolveTurn] errore lettura mano in arrivo:', incomingError)
