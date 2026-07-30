@@ -68,6 +68,7 @@ export function createEmptyPublicPlayerState() {
 export * from './rules.js'
 export * from './military.js'
 export * from './scoring.js'
+export * from './bot.js'
 export { CARDS, CARDS_BY_ID } from './cards.js'
 export { GUILDS, GUILDS_BY_ID } from './guilds.js'
 export { WONDERS, WONDER_IDS, RAW_RESOURCES, RARE_RESOURCES } from './wonders.js'

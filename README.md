@@ -117,6 +117,8 @@ davvero anti-cheat servirebbe una Edge Function con service role — fuori scope
 
 - **Riepilogo dell'ultimo turno**: ogni giocatore ha, sotto il punteggio live, una riga "Turno scorso" con azione giocata, acquisti dai vicini (con costo), monete incassate da chi ha comprato da lui, saldo prima→dopo — pubblico e visibile a tutti, utile sia per controllare che il commercio funzioni sia come informazione trasparente in partita. **Richiede `supabase/migration_004_turn_log.sql`** se il database esiste già da prima del 28/07.
 
+- **Giocatori robot ("bot")**: pulsante "🤖 Aggiungi bot" in sala d'attesa, per riempire posti liberi (nessun tetto speciale oltre ai soliti 3-7 totali). Strategia: completa gli stadi Meraviglia il prima possibile, altrimenti costruisce carte che aumentano produzione/sconti commercio, altrimenti scarta per monete. Nessuna sessione propria: sono "guidati" da qualunque browser umano connesso nella stessa partita (stesse funzioni già usate per le mosse umane, mai duplicate). **Limite noto**: se **tutti** gli umani chiudono il browser, i bot si fermano con loro — la partita riprende non appena qualcuno la riapre. Non usano le combinazioni speciali (Olympia/Babilonia/Halikarnassós): giocano sempre un'azione semplice. **Richiede `supabase/migration_006_bots.sql`** se il database esiste già da prima del 30/07.
+
 ## Cosa manca / è semplificato (prossimi step)
 
 - **Interfaccia**: essenziale (liste e pulsanti), non ancora "a carte" visivamente come le foto

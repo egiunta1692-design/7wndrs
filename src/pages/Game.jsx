@@ -25,7 +25,9 @@ import {
   canBuildCard,
   canBuildWonderStage,
   scoreGame,
-  getCardData
+  getCardData,
+  decideBotAction,
+  pickRandomWonder
 } from '../game-engine'
 import Loader from '../components/Loader'
 import Icon, { ImgIcon } from '../components/Icon'
@@ -740,6 +742,33 @@ export default function Game({ profile }) {
     await supabase.from('players').update({ wonder_side: newSide }).eq('id', myPlayer.id)
   }
 
+  // Crea un giocatore "robot": nessuna sessione propria (user_id
+  // generato lato client, mai autenticato davvero — vedi RLS in
+  // schema.sql che permette a QUALUNQUE umano già nella partita di
+  // gestirlo), Meraviglia scelta subito a caso tra quelle libere.
+  async function addBot() {
+    setError(null)
+    try {
+      const botUserId = crypto.randomUUID()
+      const botNumber = players.filter((p) => p.is_bot).length + 1
+      const { data: inserted, error: insertError } = await supabase
+        .from('players')
+        .insert({ game_id: gameId, user_id: botUserId, nickname: `🤖 Bot ${botNumber}`, is_bot: true })
+        .select()
+        .single()
+      if (insertError) throw insertError
+      const { error: handError } = await supabase.from('player_hands').insert({ game_id: gameId, player_id: inserted.id, user_id: botUserId, hand: [] })
+      if (handError) throw handError
+      const available = WONDER_IDS.filter((id) => !chosenWonderIds.has(id))
+      const pick = pickRandomWonder(available)
+      if (pick) {
+        await supabase.from('players').update({ wonder_id: pick.wonderId, wonder_side: pick.side }).eq('id', inserted.id)
+      }
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   async function startGame() {
     const ids = players.map((p) => p.id)
     const n = ids.length
@@ -827,6 +856,144 @@ export default function Game({ profile }) {
       })
   }, [game, myHand, mySeat])
 
+  // Come sopra, ma per i bot: nessun browser proprio esegue questa
+  // distribuzione per loro, quindi la fa per conto loro qualunque umano
+  // connesso — stesso principio del pilota automatico delle mosse.
+  const dealingBotsRef = useRef(false)
+  useEffect(() => {
+    if (!game || game.status !== 'playing') return
+    const deck = game.age_decks?.[String(game.age)]
+    if (!deck) return
+    if (dealingBotsRef.current) return
+    const bots = players.filter((p) => p.is_bot)
+    const botsToDeal = bots
+      .map((bot) => ({ bot, hand: myHandRows.find((h) => h.player_id === bot.id) }))
+      .filter(({ hand }) => hand && hand.dealt_age !== game.age)
+    if (botsToDeal.length === 0) return
+    dealingBotsRef.current = true
+    ;(async () => {
+      for (const { bot, hand } of botsToDeal) {
+        const botSeat = turnOrder.indexOf(bot.id)
+        if (botSeat < 0) continue
+        const dealt = dealHandForSeat(deck, botSeat)
+        if (dealt.length !== HAND_SIZE) {
+          console.error('[dealHand] MANO BOT ANOMALA, non salvo:', { botId: bot.id, botSeat, dealt })
+          continue
+        }
+        const { error } = await supabase
+          .from('player_hands')
+          .update({ hand: dealt, pending_action: null, outgoing_hand: null, outgoing_hand_for: null, outgoing_hand_turn: null, dealt_age: game.age })
+          .eq('id', hand.id)
+        if (error) console.error('[dealHand] errore distribuzione mano bot:', bot.nickname, error)
+      }
+      dealingBotsRef.current = false
+    })()
+  }, [game, players, myHandRows, turnOrder])
+
+  // ============================================================
+  // SCELTA DELLA CARTA (fase di commit) — calcola SUBITO il costo
+  // guardando lo stato attuale dei vicini, cosi' l'applicazione
+  // successiva non dipende piu' da loro (vedi prepareAction).
+  // ============================================================
+  // Versione parametrizzata di "scegli la carta": accetta QUALUNQUE
+  // giocatore bersaglio (io stesso, o un bot che sto guidando) invece di
+  // usare sempre myPlayer/myHand/mySeat — così la logica (rilettura
+  // fresca, calcolo vicini, invio mano con numero di turno) resta UNA
+  // sola, riusata sia dai click umani sia dal pilota automatico dei bot.
+  async function chooseActionFor(targetPlayer, targetHand, targetSeat, cardId, action, preference = null, bundleWith = null, bundleType = 'last_card') {
+    const targetLeftNeighbor = seatToPlayer[leftNeighborSeat(targetSeat, numPlayers)] || null
+    const targetRightNeighbor = seatToPlayer[rightNeighborSeat(targetSeat, numPlayers)] || null
+
+    // Rilegge freschi dal database il bersaglio e i suoi vicini
+    // (produzione, carte costruite, monete) invece di fidarsi dello
+    // stato React — importante soprattutto per i bot, il cui stato
+    // locale potrebbe non riflettere una risoluzione appena avvenuta.
+    const idsToRefresh = [targetPlayer.id, targetLeftNeighbor?.id, targetRightNeighbor?.id].filter(Boolean)
+    const { data: freshRows, error: freshRowsError } = await supabase.from('players').select().in('id', idsToRefresh)
+    if (freshRowsError) console.error('[chooseAction] errore rilettura giocatori freschi:', freshRowsError)
+    const freshTargetPlayer = freshRows?.find((p) => p.id === targetPlayer.id) || targetPlayer
+    const freshLeftNeighbor = targetLeftNeighbor ? freshRows?.find((p) => p.id === targetLeftNeighbor.id) || targetLeftNeighbor : null
+    const freshRightNeighbor = targetRightNeighbor ? freshRows?.find((p) => p.id === targetRightNeighbor.id) || targetRightNeighbor : null
+
+    const gameContext = { age: game.age, turnNumber: game.turn_number }
+    let prepared
+    if (bundleWith && bundleType === 'free_build') {
+      prepared = prepareFreeBuildBundle(action, cardId, bundleWith.cardId, freshTargetPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
+    } else if (bundleWith && bundleType === 'discard_build') {
+      prepared = prepareDiscardBuildBundle(action, cardId, bundleWith.cardId, freshTargetPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
+    } else if (bundleWith) {
+      prepared = prepareLastTurnBundle(action, cardId, bundleWith.action, bundleWith.cardId, freshTargetPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
+    } else {
+      prepared = prepareAction(action, cardId, freshTargetPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
+    }
+    // Rilegge la mano fresca dal database invece di fidarsi dello stato
+    // React — stessa cautela già usata altrove in questo file.
+    const { data: freshOwnHand } = await supabase.from('player_hands').select('hand').eq('id', targetHand.id).single()
+    const currentHand = freshOwnHand?.hand ?? targetHand.hand ?? []
+    const playedCardIds = bundleWith ? [cardId, bundleWith.cardId] : [cardId]
+    const remainingHand = currentHand.filter((id) => !playedCardIds.includes(id))
+    const isLastTurnOfAge = game.turn_number >= 6
+    const allPurchases = bundleWith ? [...(prepared.primary.purchases || []), ...(prepared.bonus.purchases || [])] : prepared.purchases || []
+
+    // Traduce il piano d'acquisto (chi/quanto) in importi dovuti ai
+    // vicini reali, indirizzati alla loro user_id: ognuno di loro se
+    // li accrediterà da solo durante la risoluzione del proprio turno
+    // (vedi sotto) — nessun client scrive mai il saldo di un altro.
+    const paymentsOut = {}
+    for (const purchase of allPurchases) {
+      const neighbor = purchase.neighbor === 'left' ? freshLeftNeighbor : freshRightNeighbor
+      if (!neighbor) continue
+      const key = neighbor.user_id
+      if (!paymentsOut[key]) paymentsOut[key] = { amount: 0, turn: game.turn_number }
+      paymentsOut[key].amount += purchase.unitCost
+    }
+
+    const update = { pending_action: prepared, payments_out: paymentsOut }
+    if (!isLastTurnOfAge) {
+      const recipientSeat = passRecipientSeat(game.age, targetSeat, numPlayers)
+      const recipient = seatToPlayer[recipientSeat]
+      if (!recipient) {
+        // Non dovrebbe MAI succedere (turn_order è fisso per tutta la
+        // partita) — se capita, meglio un errore rumoroso e visibile
+        // che un invio silenzioso a nessuno (causa nota di "mano vuota").
+        console.error('[chooseAction] destinatario mancante!', {
+          targetSeat,
+          recipientSeat,
+          numPlayers,
+          turnOrder,
+          seatToPlayer: Object.fromEntries(Object.entries(seatToPlayer).map(([k, v]) => [k, v?.id]))
+        })
+        throw new Error('Errore interno: destinatario della mano non trovato. Riprova, e se persiste segnalalo.')
+      }
+      console.log(
+        '[chooseAction] turno',
+        game.turn_number,
+        'per',
+        targetPlayer.nickname,
+        'invio mano residua a',
+        recipient.nickname,
+        'seat',
+        recipientSeat,
+        'user_id',
+        recipient.user_id,
+        'carte:',
+        remainingHand,
+        '(mano attuale letta fresca:',
+        currentHand,
+        ')'
+      )
+      update.outgoing_hand = remainingHand
+      update.outgoing_hand_for = recipient.user_id
+      update.outgoing_hand_turn = game.turn_number
+    } else {
+      update.outgoing_hand = null
+      update.outgoing_hand_for = null
+      update.outgoing_hand_turn = null
+    }
+    await supabase.from('player_hands').update(update).eq('id', targetHand.id)
+    await supabase.from('players').update({ ready_this_turn: true }).eq('id', targetPlayer.id)
+  }
+
   // ============================================================
   // SCELTA DELLA CARTA (fase di commit) — calcola SUBITO il costo
   // guardando lo stato attuale dei vicini, cosi' l'applicazione
@@ -835,95 +1002,7 @@ export default function Game({ profile }) {
   async function chooseAction(cardId, action, preference = null, bundleWith = null, bundleType = 'last_card') {
     setError(null)
     try {
-      // Rilegge freschi dal database me stesso e i miei vicini (produzione,
-      // carte costruite, monete) invece di fidarsi dello stato React —
-      // stessa cautela già usata per la mano: se questo client ha appena
-      // risolto un turno un istante fa, lo stato locale potrebbe non
-      // essersi ancora aggiornato del tutto.
-      const idsToRefresh = [myPlayer.id, leftNeighbor?.id, rightNeighbor?.id].filter(Boolean)
-      const { data: freshRows, error: freshRowsError } = await supabase.from('players').select().in('id', idsToRefresh)
-      if (freshRowsError) console.error('[chooseAction] errore rilettura giocatori freschi:', freshRowsError)
-      const freshMyPlayer = freshRows?.find((p) => p.id === myPlayer.id) || myPlayer
-      const freshLeftNeighbor = leftNeighbor ? freshRows?.find((p) => p.id === leftNeighbor.id) || leftNeighbor : null
-      const freshRightNeighbor = rightNeighbor ? freshRows?.find((p) => p.id === rightNeighbor.id) || rightNeighbor : null
-
-      const gameContext = { age: game.age, turnNumber: game.turn_number }
-      let prepared
-      if (bundleWith && bundleType === 'free_build') {
-        prepared = prepareFreeBuildBundle(action, cardId, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
-      } else if (bundleWith && bundleType === 'discard_build') {
-        prepared = prepareDiscardBuildBundle(action, cardId, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
-      } else if (bundleWith) {
-        prepared = prepareLastTurnBundle(action, cardId, bundleWith.action, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
-      } else {
-        prepared = prepareAction(action, cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
-      }
-      // Rilegge la mano fresca dal database invece di fidarsi di
-      // myHand.hand (stato React, che potrebbe non essere ancora stato
-      // aggiornato se questo client ha appena risolto un turno un
-      // istante fa) — stessa cautela già usata altrove in questo file.
-      const { data: freshOwnHand } = await supabase.from('player_hands').select('hand').eq('id', myHand.id).single()
-      const currentHand = freshOwnHand?.hand ?? myHand.hand ?? []
-      const playedCardIds = bundleWith ? [cardId, bundleWith.cardId] : [cardId]
-      const remainingHand = currentHand.filter((id) => !playedCardIds.includes(id))
-      const isLastTurnOfAge = game.turn_number >= 6
-      const allPurchases = bundleWith ? [...(prepared.primary.purchases || []), ...(prepared.bonus.purchases || [])] : prepared.purchases || []
-
-      // Traduce il piano d'acquisto (chi/quanto) in importi dovuti ai
-      // vicini reali, indirizzati alla loro user_id: ognuno di loro se
-      // li accrediterà da solo durante la risoluzione del proprio turno
-      // (vedi sotto) — nessun client scrive mai il saldo di un altro.
-      const paymentsOut = {}
-      for (const purchase of allPurchases) {
-        const neighbor = purchase.neighbor === 'left' ? leftNeighbor : rightNeighbor
-        if (!neighbor) continue
-        const key = neighbor.user_id
-        if (!paymentsOut[key]) paymentsOut[key] = { amount: 0, turn: game.turn_number }
-        paymentsOut[key].amount += purchase.unitCost
-      }
-
-      const update = { pending_action: prepared, payments_out: paymentsOut }
-      if (!isLastTurnOfAge) {
-        const recipientSeat = passRecipientSeat(game.age, mySeat, numPlayers)
-        const recipient = seatToPlayer[recipientSeat]
-        if (!recipient) {
-          // Non dovrebbe MAI succedere (turn_order è fisso per tutta la
-          // partita) — se capita, meglio un errore rumoroso e visibile
-          // che un invio silenzioso a nessuno (causa nota di "mano vuota").
-          console.error('[chooseAction] destinatario mancante!', {
-            mySeat,
-            recipientSeat,
-            numPlayers,
-            turnOrder,
-            seatToPlayer: Object.fromEntries(Object.entries(seatToPlayer).map(([k, v]) => [k, v?.id]))
-          })
-          throw new Error('Errore interno: destinatario della mano non trovato. Riprova, e se persiste segnalalo.')
-        }
-        console.log(
-          '[chooseAction] turno',
-          game.turn_number,
-          'invio mano residua a',
-          recipient.nickname,
-          'seat',
-          recipientSeat,
-          'user_id',
-          recipient.user_id,
-          'carte:',
-          remainingHand,
-          '(mano attuale letta fresca:',
-          currentHand,
-          ')'
-        )
-        update.outgoing_hand = remainingHand
-        update.outgoing_hand_for = recipient.user_id
-        update.outgoing_hand_turn = game.turn_number
-      } else {
-        update.outgoing_hand = null
-        update.outgoing_hand_for = null
-        update.outgoing_hand_turn = null
-      }
-      await supabase.from('player_hands').update(update).eq('id', myHand.id)
-      await supabase.from('players').update({ ready_this_turn: true }).eq('id', myPlayer.id)
+      await chooseActionFor(myPlayer, myHand, mySeat, cardId, action, preference, bundleWith, bundleType)
       setSelectedCardId(null)
       setBuyPreference(null)
       setBundlePrimaryChoice(null)
@@ -950,6 +1029,258 @@ export default function Game({ profile }) {
   // che, anche se questo blocco venisse eseguito due volte per errore,
   // la seconda scrittura non trovi righe da aggiornare.
   // ============================================================
+  // Versione parametrizzata della risoluzione turno: accetta QUALUNQUE
+  // giocatore bersaglio (io stesso, o un bot che sto guidando). Stessa
+  // identica logica di sempre (riletture fresche, guardia atomica su
+  // turn_applied, numero di turno sul passaggio mano) — vedi i tanti
+  // commenti storici qui sotto per il perché di ogni singola cautela.
+  async function resolvePlayerTurn(targetPlayer, targetHand) {
+    try {
+      const { data: freshHand, error: freshHandError } = await supabase.from('player_hands').select().eq('id', targetHand.id).single()
+      if (freshHandError) console.error('[resolveTurn] errore rilettura mano propria:', freshHandError)
+      const prepared = freshHand?.pending_action
+      if (!prepared) {
+        return
+      }
+
+      // IMPORTANTE: si rilegge fresco anche il giocatore invece di usare
+      // lo stato React (che riflette l'ultimo evento realtime ricevuto e
+      // può essere leggermente indietro rispetto al vero saldo nel
+      // database in questo preciso istante). Calcolare il nuovo saldo da
+      // un valore non aggiornato è la causa più probabile di eventuali
+      // monete negative residue.
+      const { data: freshPlayer, error: freshPlayerError } = await supabase.from('players').select().eq('id', targetPlayer.id).single()
+      if (freshPlayerError) console.error('[resolveTurn] errore rilettura giocatore proprio:', freshPlayerError)
+      const baselinePlayer = freshPlayer || targetPlayer
+
+      const updatedPublic = applyPreparedActionOrBundle(prepared, baselinePlayer)
+      const isLastTurnOfAge = game.turn_number >= 6
+
+      // Incassa eventuali pagamenti che i vicini devono per risorse
+      // comprate DA QUESTO GIOCATORE questo turno (vedi chooseActionFor:
+      // chi acquista indirizza l'importo qui, leggibile grazie alla
+      // policy RLS dedicata). Si accredita solo se il pagamento è per
+      // QUESTO turno — evita di incassare due volte lo stesso importo se
+      // il vicino non ha ancora sovrascritto payments_out con una nuova
+      // scelta (persiste finché non fa un nuovo acquisto).
+      const { data: creditRows, error: creditError } = await supabase.from('player_hands').select('user_id, payments_out').eq('game_id', gameId)
+      if (creditError) console.error('[resolveTurn] errore lettura pagamenti dovuti:', creditError)
+      let owedToMe = 0
+      for (const row of creditRows || []) {
+        const entry = row.payments_out?.[targetPlayer.user_id]
+        if (entry && entry.turn === game.turn_number) owedToMe += entry.amount
+      }
+      updatedPublic.coins += owedToMe
+
+      if (updatedPublic.coins < 0) {
+        // Non dovrebbe mai succedere (canBuildCard/canBuildWonderStage
+        // controllano già il costo totale prima di permettere l'azione):
+        // se capita comunque, lo segnaliamo forte in console con tutti i
+        // dati per capire la causa esatta, e clampiamo a 0 per non
+        // mostrare un saldo impossibile in partita.
+        console.error('[resolveTurn] SALDO NEGATIVO CALCOLATO — segnalare questo log:', {
+          playerId: targetPlayer.id,
+          baselineCoins: baselinePlayer.coins,
+          prepared,
+          computedCoins: updatedPublic.coins
+        })
+        updatedPublic.coins = 0
+      }
+
+      // Riepilogo PUBBLICO di questo turno (chi ha giocato cosa, cosa ha
+      // comprato da chi e a che prezzo, quanto ha incassato dai vicini,
+      // saldo prima/dopo) — salvato sulla riga pubblica del giocatore,
+      // serve sia a verificare che il commercio funzioni correttamente
+      // sia come informazione trasparente per tutti in tavola.
+      const actions = prepared.bundle
+        ? [
+            {
+              action: prepared.primary.action,
+              cardId: prepared.primary.cardId,
+              coinCost: prepared.primary.coinCost,
+              bonusCoins: prepared.primary.bonusCoins,
+              purchases: prepared.primary.purchases || [],
+              stageIndex: prepared.primary.stageIndex
+            },
+            {
+              action: prepared.bonus.action,
+              cardId: prepared.bonus.cardId,
+              coinCost: prepared.bonus.coinCost,
+              bonusCoins: prepared.bonus.bonusCoins,
+              purchases: prepared.bonus.purchases || [],
+              stageIndex: prepared.bonus.stageIndex,
+              bonusVia: prepared.kind
+            }
+          ]
+        : [
+            {
+              action: prepared.action,
+              cardId: prepared.cardId,
+              coinCost: prepared.coinCost,
+              bonusCoins: prepared.bonusCoins,
+              purchases: prepared.purchases || [],
+              stageIndex: prepared.stageIndex
+            }
+          ]
+      const lastTurnLog = {
+        turn: game.turn_number,
+        age: game.age,
+        actions,
+        paymentsReceived: owedToMe,
+        coinsBefore: baselinePlayer.coins,
+        coinsAfter: updatedPublic.coins
+      }
+
+      // Controllo di coerenza: il saldo dopo deve tornare esattamente da
+      // saldo prima meno i costi totali più i bonus e gli incassi. Se
+      // non torna, è un bug vero — lo segnaliamo forte con tutti i
+      // numeri invece di scoprirlo solo "a occhio" dall'interfaccia.
+      const totalCoinCost = actions.reduce((s, a) => s + (a.coinCost || 0), 0)
+      const totalBonusCoins = actions.reduce((s, a) => s + (a.bonusCoins || 0), 0)
+      const expectedCoinsAfter = baselinePlayer.coins - totalCoinCost + totalBonusCoins + owedToMe
+      if (expectedCoinsAfter !== updatedPublic.coins && !(updatedPublic.coins === 0 && expectedCoinsAfter < 0)) {
+        console.error('[resolveTurn] INCONGRUENZA SALDO — segnalare questo log:', {
+          playerId: targetPlayer.id,
+          coinsBefore: baselinePlayer.coins,
+          totalCoinCost,
+          totalBonusCoins,
+          owedToMe,
+          expectedCoinsAfter,
+          actualCoinsAfter: updatedPublic.coins,
+          actions,
+          prepared
+        })
+      }
+
+      // Scrittura atomica: procede solo se turn_applied non è già
+      // arrivato a questo turno (protegge da doppia applicazione).
+      const { data: claimed, error: claimError } = await supabase
+        .from('players')
+        .update({
+          coins: updatedPublic.coins,
+          built_cards: updatedPublic.built_cards,
+          wonder_stages_built: updatedPublic.wonder_stages_built,
+          ready_this_turn: false,
+          turn_applied: game.turn_number,
+          last_turn_log: lastTurnLog,
+          ...(prepared?.kind === 'free_build' ? { free_build_used_age: game.age } : {})
+        })
+        .eq('id', targetPlayer.id)
+        .lt('turn_applied', game.turn_number)
+        .select()
+      if (claimError) console.error('[resolveTurn] errore applicazione azione:', claimError)
+
+      if (claimed && claimed.length > 0) {
+        // Aggiorna la pila degli scarti condivisa (games.discard_pile):
+        // aggiunge le carte scartate con l'azione 'discard' questo
+        // turno, e rimuove quella eventualmente pescata dal potere di
+        // Halikarnassós ("costruisci gratis dagli scarti"). Scrittura
+        // "best effort" in lettura-modifica-scrittura sulla riga
+        // condivisa: in rarissimi casi di scarti simultanei di più
+        // giocatori nello stesso istante una voce potrebbe non
+        // comparire, accettabile per questa funzione accessoria (non
+        // altera mai lo stato di gioco di nessun giocatore).
+        const discardedIds = []
+        if (prepared.action === 'discard') discardedIds.push(prepared.cardId)
+        if (prepared.primary?.action === 'discard') discardedIds.push(prepared.primary.cardId)
+        if (prepared.bonus?.action === 'discard') discardedIds.push(prepared.bonus.cardId)
+        const pickedFromDiscard = prepared.kind === 'discard_build' ? prepared.discardCardId : null
+        if (discardedIds.length > 0 || pickedFromDiscard) {
+          const { data: freshGame } = await supabase.from('games').select('discard_pile').eq('id', gameId).single()
+          let pile = freshGame?.discard_pile || []
+          if (pickedFromDiscard) pile = pile.filter((id) => id !== pickedFromDiscard)
+          pile = [...pile, ...discardedIds]
+          await supabase.from('games').update({ discard_pile: pile }).eq('id', gameId)
+        }
+
+        // Aggiornamento OTTIMISTICO immediato: questo client conosce già
+        // con certezza il risultato appena scritto, non ha senso che
+        // aspetti l'eco realtime per aggiornare la propria interfaccia
+        // (quell'attesa, anche solo di una frazione di secondo, è quella
+        // che produce il lampeggio "mano vuota per un istante" osservato
+        // dopo la costruzione di uno stadio Meraviglia — e la stessa
+        // finestra, se allargata da un ritardo di rete, potrebbe essere
+        // la causa della mano che resta vuota più a lungo).
+        setPlayers((prev) => prev.map((pl) => (pl.id === targetPlayer.id ? { ...pl, ...claimed[0] } : pl)))
+
+        let newHand = []
+        if (!isLastTurnOfAge) {
+          // Rilettura fresca e mirata: cerca la riga che IL VICINO ha
+          // indirizzato a noi PER QUESTO TURNO ESATTO (outgoing_hand_turn
+          // deve combaciare) — non basta più solo "indirizzata a noi",
+          // altrimenti un dato non ancora sovrascritto da un turno
+          // precedente potrebbe essere riletto per errore (causa di un
+          // bug osservato: carte che sembravano non ruotare). Un paio
+          // di brevi tentativi extra in caso il vicino stia ancora
+          // completando la propria scrittura in quello stesso istante.
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const { data: incoming, error: incomingError } = await supabase
+              .from('player_hands')
+              .select('outgoing_hand, outgoing_hand_turn, user_id')
+              .eq('game_id', gameId)
+              .eq('outgoing_hand_for', targetPlayer.user_id)
+              .eq('outgoing_hand_turn', game.turn_number)
+              .neq('user_id', targetPlayer.user_id)
+              .maybeSingle()
+            if (incomingError) console.error('[resolveTurn] errore lettura mano in arrivo:', incomingError)
+            console.log('[resolveTurn] turno', game.turn_number, 'per', targetPlayer.nickname, 'tentativo', attempt, 'mano in arrivo trovata:', incoming)
+            if (incoming?.outgoing_hand?.length || attempt === 4) {
+              newHand = incoming?.outgoing_hand || []
+              if (newHand.length === 0) {
+                console.warn('[resolveTurn] MANO VUOTA dopo tutti i tentativi — segnalare questo log:', {
+                  targetUserId: targetPlayer.user_id,
+                  gameId,
+                  turn: game.turn_number,
+                  ultimoIncoming: incoming
+                })
+              }
+              break
+            }
+            await new Promise((res) => setTimeout(res, 300))
+          }
+        }
+        const newHandRow = {
+          ...freshHand,
+          hand: newHand,
+          pending_action: null,
+          dealt_age: isLastTurnOfAge ? freshHand.dealt_age : game.age
+        }
+        // ORDINE IMPORTANTE: prima si scrive e si aspetta conferma dal
+        // database, SOLO DOPO si rispecchia in locale — mai il
+        // contrario, altrimenti se questa scrittura fallisse (errore di
+        // rete, RLS, ecc.) il client mostrerebbe uno stato che nel
+        // database non esiste mai stato.
+        //
+        // IMPORTANTE: qui NON si toccano più outgoing_hand/outgoing_hand_for
+        // (a differenza delle versioni precedenti). Pulirli qui causava una
+        // race condition reale e osservata in partita: se QUESTO giocatore
+        // risolveva il proprio turno e li azzerava PRIMA che il vicino
+        // destinatario fosse riuscito a leggerli, quel vicino trovava la
+        // mano vuota per sempre (anche con più tentativi, perché il dato
+        // non c'era più fin dal primo). È sicuro lasciarli: al turno
+        // successivo il mittente li sovrascrive comunque con dati freschi
+        // prima che servano di nuovo, e a fine Epoca vengono azzerati
+        // esplicitamente sia in chooseAction (ultimo turno) sia qui sotto
+        // nella distribuzione della mano nuova.
+        const { error: handUpdateError } = await supabase
+          .from('player_hands')
+          .update({
+            hand: newHand,
+            pending_action: null,
+            dealt_age: newHandRow.dealt_age
+          })
+          .eq('id', targetHand.id)
+        if (handUpdateError) {
+          console.error('[resolveTurn] errore scrittura nuova mano:', handUpdateError)
+        } else {
+          setMyHandRows((prev) => prev.map((h) => (h.id === targetHand.id ? newHandRow : h)))
+        }
+      }
+    } catch (err) {
+      console.error('[resolveTurn] eccezione imprevista:', err)
+    }
+  }
+
   useEffect(() => {
     if (!game || game.status !== 'playing' || !myPlayer || !myHand) return
     if (numPlayers === 0 || players.some((p) => !p.wonder_id)) return
@@ -958,261 +1289,38 @@ export default function Game({ profile }) {
     const turnKey = `${game.age}-${game.turn_number}`
     if (resolvingRef.current === turnKey) return
     resolvingRef.current = turnKey
-
-    async function resolve() {
-      try {
-        const { data: freshHand, error: freshHandError } = await supabase.from('player_hands').select().eq('id', myHand.id).single()
-        if (freshHandError) console.error('[resolveTurn] errore rilettura mano propria:', freshHandError)
-        const prepared = freshHand?.pending_action
-        if (!prepared) {
-          resolvingRef.current = null
-          return
-        }
-
-        // IMPORTANTE: si rilegge fresco anche il proprio giocatore invece
-        // di usare "myPlayer" (stato React, che riflette l'ultimo evento
-        // realtime ricevuto e può essere leggermente indietro rispetto al
-        // vero saldo nel database in questo preciso istante). Calcolare il
-        // nuovo saldo da un valore non aggiornato è la causa più probabile
-        // di eventuali monete negative residue.
-        const { data: freshPlayer, error: freshPlayerError } = await supabase.from('players').select().eq('id', myPlayer.id).single()
-        if (freshPlayerError) console.error('[resolveTurn] errore rilettura giocatore proprio:', freshPlayerError)
-        const baselinePlayer = freshPlayer || myPlayer
-
-        const updatedPublic = applyPreparedActionOrBundle(prepared, baselinePlayer)
-        const isLastTurnOfAge = game.turn_number >= 6
-
-        // Incassa eventuali pagamenti che i vicini ci devono per risorse
-        // comprate DA NOI questo turno (vedi chooseAction: chi acquista
-        // indirizza l'importo qui, leggibile grazie alla policy RLS
-        // dedicata). Si accredita solo se il pagamento è per QUESTO
-        // turno — evita di incassare due volte lo stesso importo se il
-        // vicino non ha ancora sovrascritto payments_out con una nuova
-        // scelta (persiste finché non fa un nuovo acquisto).
-        const { data: creditRows, error: creditError } = await supabase
-          .from('player_hands')
-          .select('user_id, payments_out')
-          .eq('game_id', gameId)
-        if (creditError) console.error('[resolveTurn] errore lettura pagamenti dovuti:', creditError)
-        let owedToMe = 0
-        for (const row of creditRows || []) {
-          const entry = row.payments_out?.[myUserId]
-          if (entry && entry.turn === game.turn_number) owedToMe += entry.amount
-        }
-        updatedPublic.coins += owedToMe
-
-        if (updatedPublic.coins < 0) {
-          // Non dovrebbe mai succedere (canBuildCard/canBuildWonderStage
-          // controllano già il costo totale prima di permettere l'azione):
-          // se capita comunque, lo segnaliamo forte in console con tutti i
-          // dati per capire la causa esatta, e clampiamo a 0 per non
-          // mostrare un saldo impossibile in partita.
-          console.error('[resolveTurn] SALDO NEGATIVO CALCOLATO — segnalare questo log:', {
-            playerId: myPlayer.id,
-            baselineCoins: baselinePlayer.coins,
-            prepared,
-            computedCoins: updatedPublic.coins
-          })
-          updatedPublic.coins = 0
-        }
-
-        // Riepilogo PUBBLICO di questo turno (chi ha giocato cosa, cosa ha
-        // comprato da chi e a che prezzo, quanto ha incassato dai vicini,
-        // saldo prima/dopo) — salvato sulla riga pubblica del giocatore,
-        // serve sia a verificare che il commercio funzioni correttamente
-        // sia come informazione trasparente per tutti in tavola.
-        const actions = prepared.bundle
-          ? [
-              {
-                action: prepared.primary.action,
-                cardId: prepared.primary.cardId,
-                coinCost: prepared.primary.coinCost,
-                bonusCoins: prepared.primary.bonusCoins,
-                purchases: prepared.primary.purchases || [],
-                stageIndex: prepared.primary.stageIndex
-              },
-              {
-                action: prepared.bonus.action,
-                cardId: prepared.bonus.cardId,
-                coinCost: prepared.bonus.coinCost,
-                bonusCoins: prepared.bonus.bonusCoins,
-                purchases: prepared.bonus.purchases || [],
-                stageIndex: prepared.bonus.stageIndex,
-                bonusVia: prepared.kind
-              }
-            ]
-          : [
-              {
-                action: prepared.action,
-                cardId: prepared.cardId,
-                coinCost: prepared.coinCost,
-                bonusCoins: prepared.bonusCoins,
-                purchases: prepared.purchases || [],
-                stageIndex: prepared.stageIndex
-              }
-            ]
-        const lastTurnLog = {
-          turn: game.turn_number,
-          age: game.age,
-          actions,
-          paymentsReceived: owedToMe,
-          coinsBefore: baselinePlayer.coins,
-          coinsAfter: updatedPublic.coins
-        }
-
-        // Controllo di coerenza: il saldo dopo deve tornare esattamente da
-        // saldo prima meno i costi totali più i bonus e gli incassi. Se
-        // non torna, è un bug vero — lo segnaliamo forte con tutti i
-        // numeri invece di scoprirlo solo "a occhio" dall'interfaccia.
-        const totalCoinCost = actions.reduce((s, a) => s + (a.coinCost || 0), 0)
-        const totalBonusCoins = actions.reduce((s, a) => s + (a.bonusCoins || 0), 0)
-        const expectedCoinsAfter = baselinePlayer.coins - totalCoinCost + totalBonusCoins + owedToMe
-        if (expectedCoinsAfter !== updatedPublic.coins && !(updatedPublic.coins === 0 && expectedCoinsAfter < 0)) {
-          console.error('[resolveTurn] INCONGRUENZA SALDO — segnalare questo log:', {
-            playerId: myPlayer.id,
-            coinsBefore: baselinePlayer.coins,
-            totalCoinCost,
-            totalBonusCoins,
-            owedToMe,
-            expectedCoinsAfter,
-            actualCoinsAfter: updatedPublic.coins,
-            actions,
-            prepared
-          })
-        }
-
-        // Scrittura atomica: procede solo se turn_applied non è già
-        // arrivato a questo turno (protegge da doppia applicazione).
-        const { data: claimed, error: claimError } = await supabase
-          .from('players')
-          .update({
-            coins: updatedPublic.coins,
-            built_cards: updatedPublic.built_cards,
-            wonder_stages_built: updatedPublic.wonder_stages_built,
-            ready_this_turn: false,
-            turn_applied: game.turn_number,
-            last_turn_log: lastTurnLog,
-            ...(prepared?.kind === 'free_build' ? { free_build_used_age: game.age } : {})
-          })
-          .eq('id', myPlayer.id)
-          .lt('turn_applied', game.turn_number)
-          .select()
-        if (claimError) console.error('[resolveTurn] errore applicazione azione:', claimError)
-
-        if (claimed && claimed.length > 0) {
-          // Aggiorna la pila degli scarti condivisa (games.discard_pile):
-          // aggiunge le carte scartate con l'azione 'discard' questo
-          // turno, e rimuove quella eventualmente pescata dal potere di
-          // Halikarnassós ("costruisci gratis dagli scarti"). Scrittura
-          // "best effort" in lettura-modifica-scrittura sulla riga
-          // condivisa: in rarissimi casi di scarti simultanei di più
-          // giocatori nello stesso istante una voce potrebbe non
-          // comparire, accettabile per questa funzione accessoria (non
-          // altera mai lo stato di gioco di nessun giocatore).
-          const discardedIds = []
-          if (prepared.action === 'discard') discardedIds.push(prepared.cardId)
-          if (prepared.primary?.action === 'discard') discardedIds.push(prepared.primary.cardId)
-          if (prepared.bonus?.action === 'discard') discardedIds.push(prepared.bonus.cardId)
-          const pickedFromDiscard = prepared.kind === 'discard_build' ? prepared.discardCardId : null
-          if (discardedIds.length > 0 || pickedFromDiscard) {
-            const { data: freshGame } = await supabase.from('games').select('discard_pile').eq('id', gameId).single()
-            let pile = freshGame?.discard_pile || []
-            if (pickedFromDiscard) pile = pile.filter((id) => id !== pickedFromDiscard)
-            pile = [...pile, ...discardedIds]
-            await supabase.from('games').update({ discard_pile: pile }).eq('id', gameId)
-          }
-
-          // Aggiornamento OTTIMISTICO immediato: questo client conosce già
-          // con certezza il risultato appena scritto, non ha senso che
-          // aspetti l'eco realtime per aggiornare la propria interfaccia
-          // (quell'attesa, anche solo di una frazione di secondo, è quella
-          // che produce il lampeggio "mano vuota per un istante" osservato
-          // dopo la costruzione di uno stadio Meraviglia — e la stessa
-          // finestra, se allargata da un ritardo di rete, potrebbe essere
-          // la causa della mano che resta vuota più a lungo).
-          setPlayers((prev) => prev.map((pl) => (pl.id === myPlayer.id ? { ...pl, ...claimed[0] } : pl)))
-
-          let newHand = []
-          if (!isLastTurnOfAge) {
-            // Rilettura fresca e mirata: cerca la riga che IL VICINO ha
-            // indirizzato a noi PER QUESTO TURNO ESATTO (outgoing_hand_turn
-            // deve combaciare) — non basta più solo "indirizzata a noi",
-            // altrimenti un dato non ancora sovrascritto da un turno
-            // precedente potrebbe essere riletto per errore (causa di un
-            // bug osservato: carte che sembravano non ruotare). Un paio
-            // di brevi tentativi extra in caso il vicino stia ancora
-            // completando la propria scrittura in quello stesso istante.
-            for (let attempt = 0; attempt < 5; attempt++) {
-              const { data: incoming, error: incomingError } = await supabase
-                .from('player_hands')
-                .select('outgoing_hand, outgoing_hand_turn, user_id')
-                .eq('game_id', gameId)
-                .eq('outgoing_hand_for', myUserId)
-                .eq('outgoing_hand_turn', game.turn_number)
-                .neq('user_id', myUserId)
-                .maybeSingle()
-              if (incomingError) console.error('[resolveTurn] errore lettura mano in arrivo:', incomingError)
-              console.log('[resolveTurn] turno', game.turn_number, 'tentativo', attempt, 'mano in arrivo trovata:', incoming)
-              if (incoming?.outgoing_hand?.length || attempt === 4) {
-                newHand = incoming?.outgoing_hand || []
-                if (newHand.length === 0) {
-                  console.warn('[resolveTurn] MANO VUOTA dopo tutti i tentativi — segnalare questo log:', {
-                    myUserId,
-                    gameId,
-                    turn: game.turn_number,
-                    ultimoIncoming: incoming
-                  })
-                }
-                break
-              }
-              await new Promise((res) => setTimeout(res, 300))
-            }
-          }
-          const newHandRow = {
-            ...freshHand,
-            hand: newHand,
-            pending_action: null,
-            dealt_age: isLastTurnOfAge ? freshHand.dealt_age : game.age
-          }
-          // ORDINE IMPORTANTE: prima si scrive e si aspetta conferma dal
-          // database, SOLO DOPO si rispecchia in locale — mai il
-          // contrario, altrimenti se questa scrittura fallisse (errore di
-          // rete, RLS, ecc.) il client mostrerebbe uno stato che nel
-          // database non esiste mai stato.
-          //
-          // IMPORTANTE: qui NON si toccano più outgoing_hand/outgoing_hand_for
-          // (a differenza delle versioni precedenti). Pulirli qui causava una
-          // race condition reale e osservata in partita: se QUESTO giocatore
-          // risolveva il proprio turno e li azzerava PRIMA che il vicino
-          // destinatario fosse riuscito a leggerli, quel vicino trovava la
-          // mano vuota per sempre (anche con più tentativi, perché il dato
-          // non c'era più fin dal primo). È sicuro lasciarli: al turno
-          // successivo il mittente li sovrascrive comunque con dati freschi
-          // prima che servano di nuovo, e a fine Epoca vengono azzerati
-          // esplicitamente sia in chooseAction (ultimo turno) sia qui sotto
-          // nella distribuzione della mano nuova.
-          const { error: handUpdateError } = await supabase
-            .from('player_hands')
-            .update({
-              hand: newHand,
-              pending_action: null,
-              dealt_age: newHandRow.dealt_age
-            })
-            .eq('id', myHand.id)
-          if (handUpdateError) {
-            console.error('[resolveTurn] errore scrittura nuova mano:', handUpdateError)
-          } else {
-            setMyHandRows((prev) => prev.map((h) => (h.id === myHand.id ? newHandRow : h)))
-          }
-        }
-      } catch (err) {
-        console.error('[resolveTurn] eccezione imprevista:', err)
-      } finally {
-        resolvingRef.current = null
-      }
-    }
-    resolve()
+    resolvePlayerTurn(myPlayer, myHand).finally(() => {
+      resolvingRef.current = null
+    })
   }, [game, myPlayer, myHand, players, numPlayers, gameId, myUserId])
+
+  // Come sopra, ma per i bot: risolve il turno di ogni bot che ha già
+  // scelto un'azione (ready_this_turn) e non l'ha ancora applicata,
+  // guidato da qualunque umano connesso — stesso principio del pilota
+  // automatico delle scelte.
+  const resolvingBotsRef = useRef(new Set())
+  useEffect(() => {
+    if (!game || game.status !== 'playing') return
+    if (!players.every((p) => p.ready_this_turn)) return
+    const bots = players.filter((p) => p.is_bot && p.turn_applied < game.turn_number)
+    if (bots.length === 0) return
+    ;(async () => {
+      for (const bot of bots) {
+        const key = `${bot.id}-${game.age}-${game.turn_number}`
+        if (resolvingBotsRef.current.has(key)) continue
+        resolvingBotsRef.current.add(key)
+        const botHand = myHandRows.find((h) => h.player_id === bot.id)
+        if (!botHand) {
+          resolvingBotsRef.current.delete(key)
+          continue
+        }
+        await resolvePlayerTurn(bot, botHand)
+        resolvingBotsRef.current.delete(key)
+      }
+    })()
+  }, [game, players, myHandRows, gameId])
+
+
 
   // ============================================================
   // AVANZAMENTO TURNO/EPOCA — quando TUTTI hanno applicato la propria
@@ -1246,30 +1354,43 @@ export default function Game({ profile }) {
         const { data: freshRaw, error: freshError } = await supabase.from('players').select().eq('game_id', gameId)
         if (freshError) console.error('[advanceAge] errore rilettura giocatori:', freshError)
         const freshPlayers = (game.turn_order || []).map((id) => freshRaw?.find((p) => p.id === id)).filter(Boolean)
-        const freshMe = freshRaw?.find((p) => p.id === myPlayer.id) || myPlayer
 
-        // Idempotenza: se per qualche motivo questo blocco venisse
-        // eseguito due volte per la stessa Epoca (es. lo stato locale
-        // "game.age" non si è ancora aggiornato dopo che UN client ha già
-        // fatto avanzare l'Epoca), non aggiungere due volte i gettoni.
-        const alreadyResolvedThisAge = (freshMe.military_tokens || []).some((t) => t.age === game.age)
-        let newTokens = freshMe.military_tokens || []
-        if (!alreadyResolvedThisAge && freshPlayers.length === numPlayers) {
+        // Aggiorna OGNI giocatore (non solo quello loggato) — necessario
+        // perché i bot non hanno un proprio browser che esegua questo
+        // stesso effetto per conto loro; qualunque umano connesso lo fa
+        // per tutti. La guardia atomica ".eq('turn_applied', 6)" evita
+        // che due umani connessi contemporaneamente applichino
+        // l'avanzamento due volte sulla stessa riga (idempotenza già
+        // presente per il calcolo dei gettoni, qui rinforzata anche
+        // lato scrittura).
+        //
+        // ORDINE IMPORTANTE: prima si calcolano i gettoni militari
+        // AGGIORNATI di TUTTI (compreso il conflitto appena concluso),
+        // POI — solo se è l'ultima Epoca — si calcola il punteggio
+        // finale usando quello stato già aggiornato. Calcolare i
+        // punteggi PRIMA di aggiungere i gettoni dell'Epoca III
+        // escluderebbe quella potenza militare dal punteggio finale di
+        // tutti — bug reale, corretto qui.
+        if (freshPlayers.length === numPlayers) {
           const results = resolveMilitaryConflict(freshPlayers, game.age)
-          const myTokens = results[myPlayer.id] || []
-          newTokens = [...newTokens, ...myTokens]
+          const playersWithNewTokens = freshPlayers.map((p) => {
+            const alreadyResolvedThisAge = (p.military_tokens || []).some((t) => t.age === game.age)
+            const newTokens = alreadyResolvedThisAge ? p.military_tokens || [] : [...(p.military_tokens || []), ...(results[p.id] || [])]
+            return { ...p, military_tokens: newTokens, _alreadyResolvedThisAge: alreadyResolvedThisAge }
+          })
+          const scores = game.age >= 3 ? scoreGame(playersWithNewTokens) : null
+          for (const p of playersWithNewTokens) {
+            if (p._alreadyResolvedThisAge) continue
+            const update = { military_tokens: p.military_tokens, turn_applied: 0, ready_this_turn: false }
+            if (scores) update.final_score = scores.find((s) => s.playerId === p.id)
+            const { error } = await supabase.from('players').update(update).eq('id', p.id).eq('turn_applied', game.turn_number)
+            if (error) console.error('[advanceAge] errore aggiornamento fine Epoca per', p.nickname, error)
+          }
         }
 
         if (game.age < 3) {
           const nextAge = game.age + 1
           const deck = buildAgeDeck(nextAge, numPlayers)
-          if (!alreadyResolvedThisAge) {
-            const { error } = await supabase
-              .from('players')
-              .update({ military_tokens: newTokens, turn_applied: 0, ready_this_turn: false })
-              .eq('id', myPlayer.id)
-            if (error) console.error('[advanceAge] errore scrittura gettoni militari:', error)
-          }
           const { error } = await supabase
             .from('games')
             .update({ age: nextAge, turn_number: 1, age_decks: { ...game.age_decks, [nextAge]: deck } })
@@ -1277,16 +1398,6 @@ export default function Game({ profile }) {
             .eq('age', game.age)
           if (error) console.error('[advanceAge] errore avanzamento epoca:', error)
         } else {
-          if (!alreadyResolvedThisAge) {
-            const playersWithMilitary = freshPlayers.map((p) => (p.id === myPlayer.id ? { ...p, military_tokens: newTokens } : p))
-            const scores = scoreGame(playersWithMilitary)
-            const myScore = scores.find((s) => s.playerId === myPlayer.id)
-            const { error } = await supabase
-              .from('players')
-              .update({ military_tokens: newTokens, final_score: myScore, turn_applied: 0, ready_this_turn: false })
-              .eq('id', myPlayer.id)
-            if (error) console.error('[advanceAge] errore scrittura punteggio finale:', error)
-          }
           const { error } = await supabase
             .from('games')
             .update({ status: 'finished', finished_at: new Date().toISOString() })
@@ -1302,6 +1413,47 @@ export default function Game({ profile }) {
     }
     advance()
   }, [game, players, myPlayer, numPlayers, gameId])
+
+  // ============================================================
+  // PILOTA AUTOMATICO DEI BOT — qualunque umano connesso fa muovere
+  // anche i bot della partita, con le stesse identiche funzioni già
+  // usate per le proprie mosse (chooseActionFor). La stessa guardia
+  // atomica su turn_applied che protegge dalle doppie risoluzioni umane
+  // protegge automaticamente anche qui: se due umani provano a far
+  // giocare lo stesso bot nello stesso istante, solo uno dei due riesce
+  // (l'altro fallisce silenziosamente sul lock ottimistico).
+  // ============================================================
+  useEffect(() => {
+    if (!game || game.status !== 'playing') return
+    const bots = players.filter((p) => p.is_bot)
+    if (bots.length === 0) return
+
+    let cancelled = false
+    async function driveBots() {
+      for (const bot of bots) {
+        if (cancelled) return
+        if (bot.ready_this_turn) continue
+        const botHand = myHandRows.find((h) => h.player_id === bot.id)
+        if (!botHand || botHand.dealt_age !== game.age || !botHand.hand?.length) continue
+        const botSeat = turnOrder.indexOf(bot.id)
+        if (botSeat < 0) continue
+        const botLeftNeighbor = seatToPlayer[leftNeighborSeat(botSeat, numPlayers)]
+        const botRightNeighbor = seatToPlayer[rightNeighborSeat(botSeat, numPlayers)]
+        const gameContext = { age: game.age, turnNumber: game.turn_number }
+        const decision = decideBotAction(botHand.hand, bot, botLeftNeighbor, botRightNeighbor, gameContext)
+        if (!decision) continue
+        try {
+          await chooseActionFor(bot, botHand, botSeat, decision.cardId, decision.action, decision.preference)
+        } catch (err) {
+          console.error('[bot]', bot.nickname, 'errore azione:', err)
+        }
+      }
+    }
+    driveBots()
+    return () => {
+      cancelled = true
+    }
+  }, [game, players, myHandRows, turnOrder, seatToPlayer, numPlayers])
 
   if (!game || !myPlayer) return <Loader message="Carico la partita..." />
 
@@ -1743,6 +1895,12 @@ export default function Game({ profile }) {
               )}
             </div>
           </div>
+
+          {numPlayers < 7 && WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).length > 0 && (
+            <button style={{ ...secondaryButton, marginTop: 10 }} onClick={addBot}>
+              🤖 Aggiungi bot
+            </button>
+          )}
 
           {canStart && (
             <button style={{ ...primaryButton, marginTop: 16 }} onClick={startGame}>

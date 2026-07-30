@@ -81,6 +81,7 @@ create table if not exists players (
   final_score jsonb,
   free_build_used_age int,                            -- ultima Epoca in cui e' stato usato il potere "costruisci gratis dalla mano" (Babilonia lato B, 1 volta/Epoca) — null se mai usato
   last_turn_log jsonb,                                -- riepilogo PUBBLICO dell'ultima azione risolta (turno, azione, carta, acquisti da chi/quanto, monete incassate dai vicini, saldo prima/dopo) — serve sia a verificare che non ci siano malfunzionamenti sia come informazione utile ai giocatori
+  is_bot boolean not null default false,              -- true per i giocatori robot: nessuna sessione autenticata propria, "guidati" dal browser di un giocatore umano connesso (vedi RLS sotto e Game.jsx)
   unique (game_id, user_id)
 );
 
@@ -139,6 +140,24 @@ create policy "players: un utente crea solo la propria riga" on players
 create policy "players: un utente aggiorna solo la propria riga" on players
   for update using (auth.uid() = user_id);
 
+-- BOT: nessuna sessione propria, quindi auth.uid() = user_id non puo' mai
+-- valere per loro. Permesso creare/aggiornare una riga bot SOLO a chi e'
+-- GIA' un giocatore (umano) nella STESSA partita — coerente con lo
+-- spirito "client fidato" gia' in uso in tutto il progetto: qualunque
+-- umano connesso puo' "guidare" i bot della propria stanza.
+create policy "players: chiunque nella partita crea un bot" on players
+  for insert with check (
+    is_bot = true and exists (
+      select 1 from players p2 where p2.game_id = players.game_id and p2.user_id = auth.uid()
+    )
+  );
+create policy "players: chiunque nella partita aggiorna un bot" on players
+  for update using (
+    is_bot = true and exists (
+      select 1 from players p2 where p2.game_id = players.game_id and p2.user_id = auth.uid()
+    )
+  );
+
 -- player_hands: leggibile dal proprietario, oppure da chi e' il
 -- destinatario indicato in outgoing_hand_for (il vicino che deve
 -- ricevere le carte avanzate), OPPURE se payments_out contiene una
@@ -155,6 +174,25 @@ create policy "player_hands: insert solo proprio" on player_hands
   for insert with check (auth.uid() = user_id);
 create policy "player_hands: update solo proprio" on player_hands
   for update using (auth.uid() = user_id);
+
+-- BOT: stesso principio delle policy su "players" — la mano di un bot è
+-- creabile/leggibile/scrivibile da qualunque umano che sia GIA' un
+-- giocatore nella stessa partita di quel bot.
+create policy "player_hands: chiunque nella partita gestisce la mano di un bot" on player_hands
+  for all using (
+    exists (
+      select 1 from players bot_p
+      join players me_p on me_p.game_id = bot_p.game_id
+      where bot_p.id = player_hands.player_id and bot_p.is_bot = true and me_p.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from players bot_p
+      join players me_p on me_p.game_id = bot_p.game_id
+      where bot_p.id = player_hands.player_id and bot_p.is_bot = true and me_p.user_id = auth.uid()
+    )
+  );
 
 -- ============================================================
 -- GRANT: dal 30/05/2026 i nuovi progetti Supabase non espongono piu' le
