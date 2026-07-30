@@ -1152,8 +1152,66 @@ export default function Game({ profile }) {
         })
       }
 
+      // IMPORTANTE — ORDINE CRITICO: la mano in arrivo si cerca e si
+      // ASSICURA QUI, PRIMA di scrivere turn_applied. Il motivo: non
+      // appena turn_applied di questo giocatore raggiunge il turno
+      // corrente, DIVENTA VISIBILE a tutti gli altri client, che a quel
+      // punto potrebbero considerare "tutti pronti" e far avanzare il
+      // turno globale — sbloccando il MITTENTE a scegliere una nuova
+      // azione e sovrascrivere la propria outgoing_hand con dati del
+      // turno successivo. Se la ricerca della mano in arrivo avvenisse
+      // DOPO aver scritto turn_applied (come in una versione precedente),
+      // c'era una finestra reale in cui il mittente — specialmente un
+      // bot, istantaneo, senza il ritardo naturale di un click umano —
+      // poteva sovrascrivere il dato prima che questo giocatore riuscisse
+      // a leggerlo: bug osservato e confermato in partita (mano vuota
+      // permanente). Facendo la ricerca PRIMA, nessun altro client può
+      // mai essere sbloccato ad avanzare finché questo giocatore non ha
+      // già messo al sicuro la propria mano.
+      let newHand = []
+      if (!isLastTurnOfAge) {
+        // Rilettura fresca e mirata: cerca la riga che IL VICINO ha
+        // indirizzato a noi PER QUESTO TURNO ESATTO (outgoing_hand_turn
+        // deve combaciare) — non basta più solo "indirizzata a noi",
+        // altrimenti un dato non ancora sovrascritto da un turno
+        // precedente potrebbe essere riletto per errore (causa di un
+        // bug osservato: carte che sembravano non ruotare). Tentativi
+        // extra in caso il vicino stia ancora completando la propria
+        // scrittura in quello stesso istante — finestra di 5 secondi
+        // (10 tentativi da 500ms) perché con i bot lo stesso browser
+        // gestisce più flussi contemporanei e può avere più latenza del
+        // solito.
+        for (let attempt = 0; attempt < 10; attempt++) {
+          const { data: incoming, error: incomingError } = await supabase
+            .from('player_hands')
+            .select('outgoing_hand, outgoing_hand_turn, user_id')
+            .eq('game_id', gameId)
+            .eq('outgoing_hand_for', targetPlayer.user_id)
+            .eq('outgoing_hand_turn', game.turn_number)
+            .neq('user_id', targetPlayer.user_id)
+            .maybeSingle()
+          if (incomingError) console.error('[resolveTurn] errore lettura mano in arrivo:', incomingError)
+          console.log('[resolveTurn] turno', game.turn_number, 'per', targetPlayer.nickname, 'tentativo', attempt, 'mano in arrivo trovata:', incoming)
+          if (incoming?.outgoing_hand?.length || attempt === 9) {
+            newHand = incoming?.outgoing_hand || []
+            if (newHand.length === 0) {
+              console.warn('[resolveTurn] MANO VUOTA dopo tutti i tentativi — segnalare questo log:', {
+                targetUserId: targetPlayer.user_id,
+                gameId,
+                turn: game.turn_number,
+                ultimoIncoming: incoming
+              })
+            }
+            break
+          }
+          await new Promise((res) => setTimeout(res, 500))
+        }
+      }
+
       // Scrittura atomica: procede solo se turn_applied non è già
-      // arrivato a questo turno (protegge da doppia applicazione).
+      // arrivato a questo turno (protegge da doppia applicazione). Vedi
+      // commento sopra sul perché questa scrittura avviene SOLO DOPO
+      // aver già assicurato la mano in arrivo.
       const { data: claimed, error: claimError } = await supabase
         .from('players')
         .update({
@@ -1203,45 +1261,6 @@ export default function Game({ profile }) {
         // la causa della mano che resta vuota più a lungo).
         setPlayers((prev) => prev.map((pl) => (pl.id === targetPlayer.id ? { ...pl, ...claimed[0] } : pl)))
 
-        let newHand = []
-        if (!isLastTurnOfAge) {
-          // Rilettura fresca e mirata: cerca la riga che IL VICINO ha
-          // indirizzato a noi PER QUESTO TURNO ESATTO (outgoing_hand_turn
-          // deve combaciare) — non basta più solo "indirizzata a noi",
-          // altrimenti un dato non ancora sovrascritto da un turno
-          // precedente potrebbe essere riletto per errore (causa di un
-          // bug osservato: carte che sembravano non ruotare). Tentativi
-          // extra in caso il vicino stia ancora completando la propria
-          // scrittura in quello stesso istante — finestra allargata a 5
-          // secondi (10 tentativi da 500ms, era 1,5s/5 tentativi) perché
-          // con i bot lo stesso browser gestisce più flussi contemporanei
-          // e può avere più latenza del solito.
-          for (let attempt = 0; attempt < 10; attempt++) {
-            const { data: incoming, error: incomingError } = await supabase
-              .from('player_hands')
-              .select('outgoing_hand, outgoing_hand_turn, user_id')
-              .eq('game_id', gameId)
-              .eq('outgoing_hand_for', targetPlayer.user_id)
-              .eq('outgoing_hand_turn', game.turn_number)
-              .neq('user_id', targetPlayer.user_id)
-              .maybeSingle()
-            if (incomingError) console.error('[resolveTurn] errore lettura mano in arrivo:', incomingError)
-            console.log('[resolveTurn] turno', game.turn_number, 'per', targetPlayer.nickname, 'tentativo', attempt, 'mano in arrivo trovata:', incoming)
-            if (incoming?.outgoing_hand?.length || attempt === 9) {
-              newHand = incoming?.outgoing_hand || []
-              if (newHand.length === 0) {
-                console.warn('[resolveTurn] MANO VUOTA dopo tutti i tentativi — segnalare questo log:', {
-                  targetUserId: targetPlayer.user_id,
-                  gameId,
-                  turn: game.turn_number,
-                  ultimoIncoming: incoming
-                })
-              }
-              break
-            }
-            await new Promise((res) => setTimeout(res, 500))
-          }
-        }
         const newHandRow = {
           ...freshHand,
           hand: newHand,
