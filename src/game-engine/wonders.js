@@ -44,9 +44,9 @@ export const WONDERS = {
     sides: {
       A: {
         stages: [
-          { cost: { ore: 2 }, effectKind: 'vp', effectValue: 3 },
+          { cost: { stone: 2 }, effectKind: 'vp', effectValue: 3 },
           { cost: { ore: 2 }, effectKind: 'produce_choice', effectValue: RAW_RESOURCES },
-          { cost: { glass: 2 }, effectKind: 'vp', effectValue: 7 }
+          { cost: { papyrus: 1, loom: 1 }, effectKind: 'vp', effectValue: 7 }
         ]
       },
       B: {
