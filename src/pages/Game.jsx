@@ -1210,10 +1210,13 @@ export default function Game({ profile }) {
           // deve combaciare) — non basta più solo "indirizzata a noi",
           // altrimenti un dato non ancora sovrascritto da un turno
           // precedente potrebbe essere riletto per errore (causa di un
-          // bug osservato: carte che sembravano non ruotare). Un paio
-          // di brevi tentativi extra in caso il vicino stia ancora
-          // completando la propria scrittura in quello stesso istante.
-          for (let attempt = 0; attempt < 5; attempt++) {
+          // bug osservato: carte che sembravano non ruotare). Tentativi
+          // extra in caso il vicino stia ancora completando la propria
+          // scrittura in quello stesso istante — finestra allargata a 5
+          // secondi (10 tentativi da 500ms, era 1,5s/5 tentativi) perché
+          // con i bot lo stesso browser gestisce più flussi contemporanei
+          // e può avere più latenza del solito.
+          for (let attempt = 0; attempt < 10; attempt++) {
             const { data: incoming, error: incomingError } = await supabase
               .from('player_hands')
               .select('outgoing_hand, outgoing_hand_turn, user_id')
@@ -1224,7 +1227,7 @@ export default function Game({ profile }) {
               .maybeSingle()
             if (incomingError) console.error('[resolveTurn] errore lettura mano in arrivo:', incomingError)
             console.log('[resolveTurn] turno', game.turn_number, 'per', targetPlayer.nickname, 'tentativo', attempt, 'mano in arrivo trovata:', incoming)
-            if (incoming?.outgoing_hand?.length || attempt === 4) {
+            if (incoming?.outgoing_hand?.length || attempt === 9) {
               newHand = incoming?.outgoing_hand || []
               if (newHand.length === 0) {
                 console.warn('[resolveTurn] MANO VUOTA dopo tutti i tentativi — segnalare questo log:', {
@@ -1236,7 +1239,7 @@ export default function Game({ profile }) {
               }
               break
             }
-            await new Promise((res) => setTimeout(res, 300))
+            await new Promise((res) => setTimeout(res, 500))
           }
         }
         const newHandRow = {
