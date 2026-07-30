@@ -252,14 +252,36 @@ export function hasFreeChain(card, player) {
   return card.chainFrom.some((id) => built.has(id))
 }
 
+// Le 3 abilità di Olympia che rendono GRATIS una costruzione a certe
+// condizioni (non concatenazione, non un'azione "bonus" a parte come
+// build_from_hand_free/build_from_discard — sono un modificatore
+// permanente del costo normale, una volta costruito lo stadio che le
+// dà). Serve il contesto della partita (Epoca/turno) perché "prima
+// carta dell'Epoca" e "ultima carta dell'Epoca" dipendono da quello.
+export function hasWonderFreeBuild(card, player, gameContext) {
+  if (!gameContext) return false
+  const built = (player.built_cards || []).map((id) => getCardData(id)).filter(Boolean)
+  if (hasWonderStageAbility(player, 'build_first_color_free')) {
+    if (!built.some((c) => c.color === card.color)) return true
+  }
+  if (hasWonderStageAbility(player, 'build_first_age_free')) {
+    if (!built.some((c) => c.age === gameContext.age)) return true
+  }
+  if (hasWonderStageAbility(player, 'build_last_age_free') && gameContext.turnNumber === 6) {
+    return true
+  }
+  return false
+}
+
 // ------------------------------------------------------------
 // PUÒ COSTRUIRE L'EDIFICIO? (azione A)
 // ------------------------------------------------------------
-export function canBuildCard(cardId, player, leftNeighbor, rightNeighbor, preference = null) {
+export function canBuildCard(cardId, player, leftNeighbor, rightNeighbor, preference = null, gameContext = null) {
   const card = getCardData(cardId)
   if (!card) return { possible: false, reason: 'Carta sconosciuta' }
   if ((player.built_cards || []).includes(cardId)) return { possible: false, reason: 'Edificio già costruito' }
   if (hasFreeChain(card, player)) return { possible: true, coinCost: 0, free: true, purchases: [] }
+  if (hasWonderFreeBuild(card, player, gameContext)) return { possible: true, coinCost: 0, free: true, purchases: [] }
 
   const coinsCost = card.cost?.coins || 0
   if (coinsCost > 0 && coinsCost > player.coins) return { possible: false, reason: 'Monete insufficienti' }
@@ -391,12 +413,12 @@ function computeImmediateBuildCoins(card, player, leftNeighbor, rightNeighbor) {
   return 0
 }
 
-export function prepareAction(action, cardId, player, leftNeighbor, rightNeighbor, preference = null) {
+export function prepareAction(action, cardId, player, leftNeighbor, rightNeighbor, preference = null, gameContext = null) {
   if (action === 'discard') {
     return { action: 'discard', cardId, coinCost: 0, bonusCoins: 3, purchases: [] }
   }
   if (action === 'build') {
-    const check = canBuildCard(cardId, player, leftNeighbor, rightNeighbor, preference)
+    const check = canBuildCard(cardId, player, leftNeighbor, rightNeighbor, preference, gameContext)
     if (!check.possible) throw new Error(check.reason)
     const card = getCardData(cardId)
     const bonusCoins = computeImmediateBuildCoins(card, player, leftNeighbor, rightNeighbor)
@@ -448,19 +470,20 @@ export function hasWonderStageAbility(player, effectKind) {
 }
 
 // Prepara IN UN COLPO SOLO la carta "principale" del turno 6 più quella
-// "bonus" resa giocabile da Olympia lato A ("puoi giocare l'ultima carta
+// "bonus" resa giocabile da Babilonia lato B ("puoi giocare l'ultima carta
 // di ogni Epoca invece di scartarla"). Il regolamento la considera "un
 // nuovo turno": qui infatti si valuta il bonus sullo stato ottenuto
 // DOPO aver applicato la carta principale (la produzione si "ricarica").
-export function prepareLastTurnBundle(primaryAction, primaryCardId, bonusAction, bonusCardId, player, leftNeighbor, rightNeighbor, preference) {
-  const primary = prepareAction(primaryAction, primaryCardId, player, leftNeighbor, rightNeighbor, preference)
+export function prepareLastTurnBundle(primaryAction, primaryCardId, bonusAction, bonusCardId, player, leftNeighbor, rightNeighbor, preference, gameContext = null) {
+  const primary = prepareAction(primaryAction, primaryCardId, player, leftNeighbor, rightNeighbor, preference, gameContext)
   const afterPrimary = applyPreparedAction(primary, player)
-  const bonus = prepareAction(bonusAction, bonusCardId, afterPrimary, leftNeighbor, rightNeighbor, preference)
+  const bonus = prepareAction(bonusAction, bonusCardId, afterPrimary, leftNeighbor, rightNeighbor, preference, gameContext)
   return { bundle: true, kind: 'last_card', primary, bonus }
 }
 
 // Costruisce una carta ignorando completamente il suo costo (potere
-// "costruisci gratis dalla mano" di Babilonia lato B) — resta comunque
+// "costruisci gratis dalla mano") — al momento nessuna Meraviglia lo usa nei
+// dati attuali, ma la meccanica resta pronta se dovesse servire — resta comunque
 // vietato costruire due copie dello stesso edificio, e gli eventuali
 // effetti "monete subito" della carta si applicano normalmente.
 export function prepareFreeBuild(cardId, player, leftNeighbor, rightNeighbor) {
@@ -474,8 +497,8 @@ export function prepareFreeBuild(cardId, player, leftNeighbor, rightNeighbor) {
 // Come prepareLastTurnBundle, ma per il potere di Babilonia: la carta
 // "bonus" è sempre gratuita (nessun controllo di costo/risorse), a
 // differenza di Olympia dove la carta bonus segue le regole normali.
-export function prepareFreeBuildBundle(primaryAction, primaryCardId, freeBuildCardId, player, leftNeighbor, rightNeighbor, preference) {
-  const primary = prepareAction(primaryAction, primaryCardId, player, leftNeighbor, rightNeighbor, preference)
+export function prepareFreeBuildBundle(primaryAction, primaryCardId, freeBuildCardId, player, leftNeighbor, rightNeighbor, preference, gameContext = null) {
+  const primary = prepareAction(primaryAction, primaryCardId, player, leftNeighbor, rightNeighbor, preference, gameContext)
   const afterPrimary = applyPreparedAction(primary, player)
   const bonus = prepareFreeBuild(freeBuildCardId, afterPrimary, leftNeighbor, rightNeighbor)
   return { bundle: true, kind: 'free_build', primary, bonus }
@@ -484,8 +507,8 @@ export function prepareFreeBuildBundle(primaryAction, primaryCardId, freeBuildCa
 // Come prepareLastTurnBundle, ma per il potere di Halikarnassós: la
 // carta "bonus" non viene dalla mano ma dalla pila degli scarti
 // condivisa, ed è sempre gratuita (nessun controllo di costo/risorse).
-export function prepareDiscardBuildBundle(primaryAction, primaryCardId, discardCardId, player, leftNeighbor, rightNeighbor, preference) {
-  const primary = prepareAction(primaryAction, primaryCardId, player, leftNeighbor, rightNeighbor, preference)
+export function prepareDiscardBuildBundle(primaryAction, primaryCardId, discardCardId, player, leftNeighbor, rightNeighbor, preference, gameContext = null) {
+  const primary = prepareAction(primaryAction, primaryCardId, player, leftNeighbor, rightNeighbor, preference, gameContext)
   const afterPrimary = applyPreparedAction(primary, player)
   const bonus = prepareFreeBuild(discardCardId, afterPrimary, leftNeighbor, rightNeighbor)
   return { bundle: true, kind: 'discard_build', primary, bonus, discardCardId }

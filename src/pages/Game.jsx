@@ -448,25 +448,33 @@ function effectLabel(card, neighbors = {}) {
 
 // Descrizione leggibile dell'effetto di uno stadio di Meraviglia.
 function wonderStageLabel(stage, neighbors = {}) {
+  const extras = []
+  if (stage.extraVp) extras.push(`+${stage.extraVp}🏆`)
+  if (stage.extraMilitary) extras.push(`+${stage.extraMilitary}⚔️`)
+  const suffix = extras.length ? <> ({extras.join(' ')})</> : null
+  let base
   switch (stage.effectKind) {
     case 'vp':
-      return `+${stage.effectValue}🏆`
+      base = `+${stage.effectValue}🏆`
+      break
     case 'coins':
-      return (
+      base = (
         <>
           +{stage.effectValue}
           <ImgIcon name="coin" size={12} title="monete" />
         </>
       )
+      break
     case 'vp_and_coins':
-      return (
+      base = (
         <>
           +{stage.effectValue.vp}🏆 +{stage.effectValue.coins}
           <ImgIcon name="coin" size={12} title="monete" />
         </>
       )
+      break
     case 'produce_choice':
-      return (
+      base = (
         <>
           +1 a scelta:{' '}
           {stage.effectValue.map((r, i) => (
@@ -477,16 +485,18 @@ function wonderStageLabel(stage, neighbors = {}) {
           ))}
         </>
       )
+      break
     case 'military':
-      return `+${stage.effectValue}⚔️`
+      base = `+${stage.effectValue}⚔️`
+      break
     case 'science':
-      return stage.effectValue === 1
-        ? `1 simbolo scientifico a scelta 🧭⚙️📝`
-        : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
+      base =
+        stage.effectValue === 1 ? `1 simbolo scientifico a scelta 🧭⚙️📝` : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
+      break
     case 'trade_discount': {
       const hasLeftW = stage.effectValue.neighbors.includes('left')
       const hasRightW = stage.effectValue.neighbors.includes('right')
-      return (
+      base = (
         <>
           1<ImgIcon name="coin" size={12} title="monete" /> per acquistare: {hasLeftW && `◄${neighbors.left ? `(${neighbors.left})` : ''}`}
           {stage.effectValue.resources.map((r, i) => (
@@ -498,18 +508,40 @@ function wonderStageLabel(stage, neighbors = {}) {
           {hasRightW && `${neighbors.right ? `(${neighbors.right})` : ''}►`}
         </>
       )
+      break
     }
     case 'build_from_hand_free':
-      return `Costruisci gratis dalla mano (1 volta/Epoca)`
+      base = `Costruisci gratis dalla mano (1 volta/Epoca)`
+      break
     case 'build_from_discard':
-      return `Costruisci gratis dagli scarti`
+      base = `Costruisci gratis dagli scarti`
+      break
     case 'play_last_card':
-      return `Puoi giocare l'ultima carta di ogni Epoca`
+      base = `Puoi giocare l'ultima carta di ogni Epoca`
+      break
+    case 'build_first_color_free':
+      base = `Costruisci gratis la prima carta di ogni colore`
+      break
+    case 'build_first_age_free':
+      base = `Costruisci gratis la prima carta di ogni Epoca`
+      break
+    case 'build_last_age_free':
+      base = `Costruisci gratis l'ultima carta di ogni Epoca`
+      break
     case 'copy_guild':
-      return `Copia una Gilda di un vicino a fine partita`
+      base = `Copia una Gilda di un vicino a fine partita`
+      break
     default:
-      return ''
+      base = ''
   }
+  return suffix ? (
+    <>
+      {base}
+      {suffix}
+    </>
+  ) : (
+    base
+  )
 }
 
 // Variante SOLO TESTO di wonderStageLabel (emoji anche per pietra/legno/
@@ -519,40 +551,64 @@ function iconTextFor(r) {
   return r === 'stone' ? '🪨' : r === 'wood' ? '🪵' : RESOURCE_ICON[r] || r
 }
 function wonderStageLabelText(stage, neighbors = {}) {
+  const extras = []
+  if (stage.extraVp) extras.push(`+${stage.extraVp}🏆`)
+  if (stage.extraMilitary) extras.push(`+${stage.extraMilitary}⚔️`)
+  const suffix = extras.length ? ` (${extras.join(' ')})` : ''
+  let base
   switch (stage.effectKind) {
     case 'vp':
-      return `+${stage.effectValue}🏆`
+      base = `+${stage.effectValue}🏆`
+      break
     case 'coins':
-      return `+${stage.effectValue}🪙`
+      base = `+${stage.effectValue}🪙`
+      break
     case 'vp_and_coins':
-      return `+${stage.effectValue.vp}🏆 +${stage.effectValue.coins}🪙`
+      base = `+${stage.effectValue.vp}🏆 +${stage.effectValue.coins}🪙`
+      break
     case 'produce_choice':
-      return `+1 a scelta: ${stage.effectValue.map(iconTextFor).join(' ')}`
+      base = `+1 a scelta: ${stage.effectValue.map(iconTextFor).join(' ')}`
+      break
     case 'military':
-      return `+${stage.effectValue}⚔️`
+      base = `+${stage.effectValue}⚔️`
+      break
     case 'science':
-      return stage.effectValue === 1
-        ? `1 simbolo scientifico a scelta 🧭⚙️📝`
-        : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
+      base = stage.effectValue === 1 ? `1 simbolo scientifico a scelta 🧭⚙️📝` : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
+      break
     case 'trade_discount': {
       const hasLeftW = stage.effectValue.neighbors.includes('left')
       const hasRightW = stage.effectValue.neighbors.includes('right')
       const icons = stage.effectValue.resources.map(iconTextFor).join(' ')
       const left = hasLeftW ? `◄${neighbors.left ? `(${neighbors.left})` : ''}` : ''
       const right = hasRightW ? `${neighbors.right ? `(${neighbors.right})` : ''}►` : ''
-      return `1🪙 per acquistare: ${left}${icons}${right}`
+      base = `1🪙 per acquistare: ${left}${icons}${right}`
+      break
     }
     case 'build_from_hand_free':
-      return `Costruisci gratis dalla mano (1 volta/Epoca)`
+      base = `Costruisci gratis dalla mano (1 volta/Epoca)`
+      break
     case 'build_from_discard':
-      return `Costruisci gratis dagli scarti`
+      base = `Costruisci gratis dagli scarti`
+      break
     case 'play_last_card':
-      return `Puoi giocare l'ultima carta di ogni Epoca`
+      base = `Puoi giocare l'ultima carta di ogni Epoca`
+      break
+    case 'build_first_color_free':
+      base = `Costruisci gratis la prima carta di ogni colore`
+      break
+    case 'build_first_age_free':
+      base = `Costruisci gratis la prima carta di ogni Epoca`
+      break
+    case 'build_last_age_free':
+      base = `Costruisci gratis l'ultima carta di ogni Epoca`
+      break
     case 'copy_guild':
-      return `Copia una Gilda di un vicino a fine partita`
+      base = `Copia una Gilda di un vicino a fine partita`
+      break
     default:
-      return ''
+      base = ''
   }
+  return base + suffix
 }
 
 export default function Game({ profile }) {
@@ -566,7 +622,7 @@ export default function Game({ profile }) {
   const [error, setError] = useState(null)
   const [selectedCardId, setSelectedCardId] = useState(null)
   const [buyPreference, setBuyPreference] = useState(null)
-  const [bundlePrimaryChoice, setBundlePrimaryChoice] = useState(null) // { cardId, action } — Olympia lato A o Babilonia lato B
+  const [bundlePrimaryChoice, setBundlePrimaryChoice] = useState(null) // { cardId, action } — Babilonia lato B "gioca l'ultima carta" (nessuna Meraviglia usa più "costruisci gratis dalla mano" nei dati attuali)
   const [discardPicker, setDiscardPicker] = useState(null) // { cardId, action } della carta principale, in attesa di scelta dagli scarti (Halikarnassós)
   const [showBoard, setShowBoard] = useState(false)
   const [expandedPlayerIds, setExpandedPlayerIds] = useState(null) // null = default (solo il tuo pannello espanso); altrimenti Set esplicito dei pannelli aperti
@@ -791,15 +847,16 @@ export default function Game({ profile }) {
       const freshLeftNeighbor = leftNeighbor ? freshRows?.find((p) => p.id === leftNeighbor.id) || leftNeighbor : null
       const freshRightNeighbor = rightNeighbor ? freshRows?.find((p) => p.id === rightNeighbor.id) || rightNeighbor : null
 
+      const gameContext = { age: game.age, turnNumber: game.turn_number }
       let prepared
       if (bundleWith && bundleType === 'free_build') {
-        prepared = prepareFreeBuildBundle(action, cardId, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference)
+        prepared = prepareFreeBuildBundle(action, cardId, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
       } else if (bundleWith && bundleType === 'discard_build') {
-        prepared = prepareDiscardBuildBundle(action, cardId, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference)
+        prepared = prepareDiscardBuildBundle(action, cardId, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
       } else if (bundleWith) {
-        prepared = prepareLastTurnBundle(action, cardId, bundleWith.action, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference)
+        prepared = prepareLastTurnBundle(action, cardId, bundleWith.action, bundleWith.cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
       } else {
-        prepared = prepareAction(action, cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference)
+        prepared = prepareAction(action, cardId, freshMyPlayer, freshLeftNeighbor, freshRightNeighbor, preference, gameContext)
       }
       // Rilegge la mano fresca dal database invece di fidarsi di
       // myHand.hand (stato React, che potrebbe non essere ancora stato
@@ -1906,7 +1963,7 @@ export default function Game({ profile }) {
                 // errore imprevisto nel calcolo) resta cliccabile.
                 let buildImpossible = false
                 try {
-                  buildImpossible = !canBuildCard(cardId, myPlayer, leftNeighbor, rightNeighbor).possible
+                  buildImpossible = !canBuildCard(cardId, myPlayer, leftNeighbor, rightNeighbor, null, { age: game.age, turnNumber: game.turn_number }).possible
                 } catch {
                   buildImpossible = false
                 }

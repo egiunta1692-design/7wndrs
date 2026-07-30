@@ -35,6 +35,7 @@ function scoreWonder(player) {
     if (!stage) continue
     if (stage.effectKind === 'vp') vp += stage.effectValue
     if (stage.effectKind === 'vp_and_coins') vp += stage.effectValue.vp
+    if (stage.extraVp) vp += stage.extraVp
   }
   return vp
 }
