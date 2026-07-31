@@ -1973,7 +1973,7 @@ export default function Game({ profile }) {
     const canStart = numPlayers >= 3 && numPlayers <= 7 && players.every((p) => p.wonder_id)
     return (
       <div style={page}>
-        <div style={{ ...cardWide, width: '96vw' }}>
+        <div style={{ ...cardWide, width: '96vw', maxWidth: 1200 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <h1 style={{ ...title, margin: 0 }}>Stanza {game.room_code}</h1>
             <button onClick={() => navigate('/')} style={linkText}>
