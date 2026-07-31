@@ -206,19 +206,30 @@ function tradeDiscountSummary(player) {
   const rightArr = [...d.right]
   if (leftArr.length === 0 && rightArr.length === 0) return null
   const iconsRow = (arr) => arr.map((r) => <span key={r}>{resIconNode(r)}</span>)
-  const sameSet = leftArr.length === rightArr.length && leftArr.every((r) => rightArr.includes(r))
-  if (leftArr.length && rightArr.length && sameSet) {
-    return (
-      <>
-        ◄{iconsRow(leftArr)}►
-      </>
+  // Ogni risorsa va mostrata UNA sola volta, con la freccia giusta: ◄
+  // se scontata solo da sinistra, ► solo da destra, entrambe se scontata
+  // da tutti e due i vicini (anche in caso di sovrapposizione parziale,
+  // non solo quando le due liste coincidono esattamente).
+  const both = leftArr.filter((r) => rightArr.includes(r))
+  const leftOnly = leftArr.filter((r) => !rightArr.includes(r))
+  const rightOnly = rightArr.filter((r) => !leftArr.includes(r))
+  const parts = []
+  if (leftOnly.length > 0) parts.push(<span key="l">◄{iconsRow(leftOnly)}</span>)
+  if (both.length > 0)
+    parts.push(
+      <span key="b">
+        ◄{iconsRow(both)}►
+      </span>
     )
-  }
+  if (rightOnly.length > 0) parts.push(<span key="r">{iconsRow(rightOnly)}►</span>)
   return (
     <>
-      {leftArr.length > 0 && <span>◄{iconsRow(leftArr)}</span>}
-      {leftArr.length > 0 && rightArr.length > 0 && ' '}
-      {rightArr.length > 0 && <span>{iconsRow(rightArr)}►</span>}
+      {parts.map((p, i) => (
+        <span key={i}>
+          {i > 0 ? ' ' : ''}
+          {p}
+        </span>
+      ))}
     </>
   )
 }
