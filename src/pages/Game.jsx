@@ -1519,6 +1519,26 @@ export default function Game({ profile }) {
 
     async function advance() {
       try {
+        // IMPORTANTE: rilegge SEMPRE freschi i giocatori prima di decidere
+        // se incrementare il turno, invece di fidarsi dello stato React
+        // (che ha attivato questo effetto). Motivo: al confine tra
+        // Epoche, i dati realtime di "players" e "games" arrivano su
+        // canali separati, senza garanzia di ordine — un client potrebbe
+        // vedere il NUOVO game.turn_number (es. 1, appena iniziata
+        // l'Epoca) mentre localmente i giocatori mostrano ancora il
+        // turn_applied VECCHIO (es. 6, dall'Epoca appena conclusa). Il
+        // confronto "6 >= 1" risulterebbe vero per errore, facendo
+        // avanzare il turno una volta di troppo prima ancora che
+        // qualcuno abbia giocato la prima carta — bug reale osservato in
+        // partita (turno mostrato a 2 con tutte le mani ancora intatte).
+        const { data: freshCheck, error: freshCheckError } = await supabase.from('players').select('id, turn_applied, wonder_id').eq('game_id', gameId)
+        if (freshCheckError) {
+          console.error('[advanceAge] errore rilettura di controllo:', freshCheckError)
+          return
+        }
+        if (!freshCheck || freshCheck.length !== numPlayers || freshCheck.some((p) => !p.wonder_id)) return
+        if (!freshCheck.every((p) => p.turn_applied >= game.turn_number)) return
+
         if (game.turn_number < 6) {
           await supabase
             .from('games')

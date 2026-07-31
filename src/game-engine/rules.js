@@ -132,7 +132,9 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor, p
   const rightPool = rightNeighbor ? computePurchasablePool(rightNeighbor) : { fixed: {}, choiceGenerators: [] }
 
   // Espande il costo in una lista di unità da coprire, dopo aver
-  // sottratto quanto coperto dalla produzione FISSA propria.
+  // sottratto quanto coperto dalla produzione FISSA propria (i propri
+  // generatori a scelta sono gestiti più sotto nel backtracking, non
+  // qui, perché vanno provati in ordine assieme alle altre opzioni).
   const remaining = []
   for (const [resource, amount] of Object.entries(cost)) {
     const owned = fixed[resource] || 0
@@ -140,22 +142,6 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor, p
     for (let i = 0; i < toCover; i++) remaining.push(resource)
   }
   if (remaining.length === 0) return { payable: true, coinCost: 0, purchases: [] }
-
-  // Pool acquistabile "espanso" in unità disponibili per risorsa,
-  // ricordando se derivano da un generatore a scelta (non vincolante:
-  // trattiamo l'intera capacità come acquistabile per singola unità,
-  // dato che ogni simbolo del vicino è comunque limitato a 1 unità/turno
-  // — sommiamo fisse + una unità per generatore a scelta compatibile).
-  function expandPool(pool) {
-    const avail = {}
-    for (const [r, n] of Object.entries(pool.fixed)) avail[r] = (avail[r] || 0) + n
-    for (const gen of pool.choiceGenerators) {
-      for (const r of gen) avail[r] = (avail[r] || 0) + 1
-    }
-    return avail
-  }
-  const leftAvail = expandPool(leftPool)
-  const rightAvail = expandPool(rightPool)
 
   let bestCoinCost = null
   let bestPurchases = null
@@ -168,7 +154,20 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor, p
   // Backtracking: per ogni unità rimanente prova, in ordine di
   // preferenza, generatore proprio a scelta libero, poi il vicino
   // preferito (se indicato e più economico o pari), poi l'altro.
-  function backtrack(index, usedGenerators, leftLeft, rightLeft, coinsSoFar, purchasesSoFar) {
+  //
+  // IMPORTANTE: i generatori a scelta di un vicino (es. una carta che dà
+  // "Legno O Minerale a scelta") vanno trattati come "usa e getta" per
+  // SINGOLO generatore, non come disponibilità separata per ciascuna
+  // risorsa che potrebbero dare — altrimenti se servisse sia Legno che
+  // Minerale nello stesso acquisto, il motore comprerebbe erroneamente
+  // entrambi dalla STESSA unica carta del vicino (bug reale trovato e
+  // corretto qui: prima venivano "espansi" sommando +1 a ogni risorsa
+  // del generatore, permettendo di usarlo due volte). leftLeftFixed/
+  // rightLeftFixed tracciano le quantità fisse residue (queste sì
+  // sommabili liberamente, non derivano da un singolo generatore
+  // condiviso); leftUsedGens/rightUsedGens tracciano quali generatori a
+  // scelta del vicino sono già stati "consumati" in questo ramo.
+  function backtrack(index, usedGenerators, leftLeftFixed, rightLeftFixed, leftUsedGens, rightUsedGens, coinsSoFar, purchasesSoFar) {
     if (bestCoinCost !== null && coinsSoFar >= bestCoinCost) return // pruning
     if (index === remaining.length) {
       if (bestCoinCost === null || coinsSoFar < bestCoinCost) {
@@ -184,7 +183,7 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor, p
       if (usedGenerators.has(g)) continue
       if (choiceGenerators[g].includes(resource)) {
         usedGenerators.add(g)
-        backtrack(index + 1, usedGenerators, leftLeft, rightLeft, coinsSoFar, purchasesSoFar)
+        backtrack(index + 1, usedGenerators, leftLeftFixed, rightLeftFixed, leftUsedGens, rightUsedGens, coinsSoFar, purchasesSoFar)
         usedGenerators.delete(g)
       }
     }
@@ -195,24 +194,38 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor, p
     // prima soluzione trovata a costo minimo è quella che resta).
     const leftCost = coinCostFor('left', resource)
     const rightCost = coinCostFor('right', resource)
-    const tryLeft = () => {
-      if ((leftLeft[resource] || 0) > 0) {
-        leftLeft[resource]--
-        purchasesSoFar.push({ neighbor: 'left', resource, unitCost: leftCost })
-        backtrack(index + 1, usedGenerators, leftLeft, rightLeft, coinsSoFar + leftCost, purchasesSoFar)
+
+    function tryNeighbor(key, pool, leftFixedState, usedGensState, cost, action) {
+      // Prima la produzione FISSA del vicino (sommabile liberamente).
+      if ((leftFixedState[resource] || 0) > 0) {
+        leftFixedState[resource]--
+        purchasesSoFar.push({ neighbor: key, resource, unitCost: cost })
+        action()
         purchasesSoFar.pop()
-        leftLeft[resource]++
+        leftFixedState[resource]++
+        return
+      }
+      // Altrimenti un generatore a scelta del vicino NON ANCORA usato
+      // che comprenda questa risorsa — un generatore alla volta, mai
+      // due risorse diverse dallo stesso.
+      for (let g = 0; g < pool.choiceGenerators.length; g++) {
+        if (usedGensState.has(g)) continue
+        if (!pool.choiceGenerators[g].includes(resource)) continue
+        usedGensState.add(g)
+        purchasesSoFar.push({ neighbor: key, resource, unitCost: cost })
+        action()
+        purchasesSoFar.pop()
+        usedGensState.delete(g)
       }
     }
-    const tryRight = () => {
-      if ((rightLeft[resource] || 0) > 0) {
-        rightLeft[resource]--
-        purchasesSoFar.push({ neighbor: 'right', resource, unitCost: rightCost })
-        backtrack(index + 1, usedGenerators, leftLeft, rightLeft, coinsSoFar + rightCost, purchasesSoFar)
-        purchasesSoFar.pop()
-        rightLeft[resource]++
-      }
-    }
+    const tryLeft = () =>
+      tryNeighbor('left', leftPool, leftLeftFixed, leftUsedGens, leftCost, () =>
+        backtrack(index + 1, usedGenerators, leftLeftFixed, rightLeftFixed, leftUsedGens, rightUsedGens, coinsSoFar + leftCost, purchasesSoFar)
+      )
+    const tryRight = () =>
+      tryNeighbor('right', rightPool, rightLeftFixed, rightUsedGens, rightCost, () =>
+        backtrack(index + 1, usedGenerators, leftLeftFixed, rightLeftFixed, leftUsedGens, rightUsedGens, coinsSoFar + rightCost, purchasesSoFar)
+      )
     if (preference === 'right') {
       tryRight()
       tryLeft()
@@ -236,7 +249,7 @@ export function resolveResourceCost(cost, player, leftNeighbor, rightNeighbor, p
     }
   }
 
-  backtrack(0, new Set(), { ...leftAvail }, { ...rightAvail }, 0, [])
+  backtrack(0, new Set(), { ...leftPool.fixed }, { ...rightPool.fixed }, new Set(), new Set(), 0, [])
 
   if (bestCoinCost === null) return { payable: false }
   return { payable: true, coinCost: bestCoinCost, purchases: bestPurchases }
