@@ -983,6 +983,24 @@ export default function Game({ profile }) {
     const freshLeftNeighbor = targetLeftNeighbor ? freshRows?.find((p) => p.id === targetLeftNeighbor.id) || targetLeftNeighbor : null
     const freshRightNeighbor = targetRightNeighbor ? freshRows?.find((p) => p.id === targetRightNeighbor.id) || targetRightNeighbor : null
 
+    // IMPORTANTE: rifiuta la scelta se questo giocatore ha già risolto il
+    // PROPRIO turno corrente ma il conteggio GLOBALE (game.turn_number)
+    // non è ancora avanzato (perché altri giocatori non hanno ancora
+    // finito). Chi ha appena risolto ottiene subito una mano nuova e
+    // "non pronto" — senza questo controllo si potrebbe scegliere
+    // un'azione per quella mano nuova mentre è ancora timbrata col
+    // numero di turno VECCHIO, sovrascrivendo l'invio corretto già
+    // fatto in precedenza (bug osservato sia con bot, che reagiscono
+    // all'istante, sia — più raramente — con umani veloci a cliccare).
+    if (freshTargetPlayer.turn_applied !== game.turn_number - 1) {
+      console.warn('[chooseAction] scelta prematura bloccata:', {
+        targetPlayer: targetPlayer.nickname,
+        turnApplied: freshTargetPlayer.turn_applied,
+        turnoGlobale: game.turn_number
+      })
+      throw new Error('Aspetta che tutti raggiungano questo turno prima di scegliere. Riprova tra un istante.')
+    }
+
     const gameContext = { age: game.age, turnNumber: game.turn_number }
     let prepared
     if (bundleWith && bundleType === 'free_build') {
@@ -2252,7 +2270,15 @@ export default function Game({ profile }) {
   // UI — Turno di gioco
   // ============================================================
   const hand = myHand?.hand || []
-  const iAmReady = myPlayer.ready_this_turn
+  // "Sono pronto/in attesa" copre due casi: ho già scelto per QUESTO
+  // turno (ready_this_turn), oppure ho già risolto il mio turno e sto
+  // aspettando che gli altri raggiungano il conteggio globale (il mio
+  // turn_applied è già arrivato al turno corrente, quindi non ho
+  // ancora ricevuto la mano nuova, o l'ho ricevuta ma non è ancora "il
+  // mio turno" per il conteggio globale) — mostrare la mano in questo
+  // secondo caso sarebbe fuorviante, dato che il tentativo di sceglierla
+  // verrebbe comunque rifiutato (vedi controllo in chooseActionFor).
+  const iAmReady = myPlayer.ready_this_turn || myPlayer.turn_applied >= game.turn_number
   const myWonderSide = WONDERS[myPlayer.wonder_id]?.sides[myPlayer.wonder_side]
   const myNextStage = myWonderSide?.stages[myPlayer.wonder_stages_built || 0]
   const nextWonderStageLabel = myNextStage ? `${costLabelText(myNextStage.cost)} → ${wonderStageLabelText(myNextStage, myNeighborNicknames)}` : null
