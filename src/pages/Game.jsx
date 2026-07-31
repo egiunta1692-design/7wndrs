@@ -32,7 +32,7 @@ import {
 } from '../game-engine'
 import Loader from '../components/Loader'
 import Icon, { ImgIcon } from '../components/Icon'
-import { page, cardWide, title, primaryButton, secondaryButton, pillButton, errorText, linkText } from '../styles/theme'
+import { page, cardWide, title, primaryButton, secondaryButton, pillButton, errorText, linkText, ACCENT } from '../styles/theme'
 
 const COLOR_LABEL = { brown: '🟤', grey: '⚪', blue: '🔵', yellow: '🟡', red: '🔴', green: '🟢', purple: '🟣' }
 const RESOURCE_ICON = { clay: '🧱', stone: '🪨', ore: '⛏️', wood: '🪵', glass: '🔷', loom: '🧵', papyrus: '📜' }
@@ -1889,7 +1889,10 @@ export default function Game({ profile }) {
                                 borderRadius: 6,
                                 padding: '3px 16px 12px 6px',
                                 minWidth: 130,
-                                maxWidth: 150
+                                maxWidth: 150,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'space-between'
                               }}
                             >
                               <div style={{ fontWeight: 700, fontSize: '0.7rem' }}>
@@ -1931,6 +1934,7 @@ export default function Game({ profile }) {
                       flex: 1,
                       display: 'flex',
                       flexDirection: 'column',
+                      justifyContent: 'space-between',
                       gap: 4,
                       background: built ? '#e9dfc8' : '#fff',
                       border: built ? '1px solid #8a6a48' : '1px solid #e4ddcc',
@@ -1969,7 +1973,7 @@ export default function Game({ profile }) {
     const canStart = numPlayers >= 3 && numPlayers <= 7 && players.every((p) => p.wonder_id)
     return (
       <div style={page}>
-        <div style={{ ...cardWide, width: 820 }}>
+        <div style={{ ...cardWide, width: '96vw' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <h1 style={{ ...title, margin: 0 }}>Stanza {game.room_code}</h1>
             <button onClick={() => navigate('/')} style={linkText}>
@@ -1990,8 +1994,12 @@ export default function Game({ profile }) {
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {p.wonder_id ? `${WONDERS[p.wonder_id].name} ${WONDER_SIDE_ICON[p.wonder_side]} · ${wonderStartResourceLabel(p.wonder_id)}` : '— sceglie...'}
                   {p.is_bot && isCreator && (
-                    <button style={{ ...secondaryButton, padding: '2px 8px', fontSize: '0.72rem' }} onClick={() => removeBot(p.id)}>
-                      ✕ Rimuovi
+                    <button
+                      style={{ ...pillButton, padding: '2px 8px', lineHeight: 1 }}
+                      onClick={() => removeBot(p.id)}
+                      title="Rimuovi bot"
+                    >
+                      ✕
                     </button>
                   )}
                 </span>
@@ -1999,25 +2007,25 @@ export default function Game({ profile }) {
             ))}
           </div>
 
-          {isCreator && numPlayers < 7 && WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).length > 0 && (
-            <button style={{ ...secondaryButton, marginTop: 4 }} onClick={addBot}>
-              🤖 Aggiungi bot
-            </button>
-          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 10 }}>
+            {isCreator && numPlayers < 7 && WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).length > 0 && (
+              <button style={pillButton} onClick={addBot}>
+                🤖 Aggiungi bot
+              </button>
+            )}
 
-          {canStart && (
-            <button style={{ ...primaryButton, marginTop: 10, marginLeft: 10 }} onClick={startGame}>
-              ▶️ Avvia partita
-            </button>
-          )}
+            {canStart && (
+              <button style={{ ...pillButton, background: ACCENT, color: '#fff', border: 'none', fontWeight: 700 }} onClick={startGame}>
+                ▶️ Avvia partita
+              </button>
+            )}
 
-          <div style={{ marginTop: 10 }}>
             {isCreator ? (
-              <button style={{ ...secondaryButton, color: '#a33' }} onClick={() => setConfirmingDeleteRoom(true)}>
+              <button style={{ ...pillButton, color: '#a33' }} onClick={() => setConfirmingDeleteRoom(true)}>
                 🗑️ Elimina stanza
               </button>
             ) : (
-              <button style={{ ...secondaryButton, color: '#a33' }} onClick={() => setConfirmingLeaveRoom(true)}>
+              <button style={{ ...pillButton, color: '#a33' }} onClick={() => setConfirmingLeaveRoom(true)}>
                 🚪 Abbandona stanza
               </button>
             )}
@@ -2025,10 +2033,10 @@ export default function Game({ profile }) {
           {confirmingDeleteRoom && (
             <div style={{ marginTop: 8, fontSize: '0.85rem' }}>
               Eliminare la stanza per tutti? Non si può annullare.{' '}
-              <button style={{ ...secondaryButton, color: '#a33' }} onClick={deleteRoom}>
+              <button style={{ ...pillButton, color: '#a33' }} onClick={deleteRoom}>
                 Sì, elimina
               </button>{' '}
-              <button style={secondaryButton} onClick={() => setConfirmingDeleteRoom(false)}>
+              <button style={pillButton} onClick={() => setConfirmingDeleteRoom(false)}>
                 Annulla
               </button>
             </div>
@@ -2036,10 +2044,10 @@ export default function Game({ profile }) {
           {confirmingLeaveRoom && (
             <div style={{ marginTop: 8, fontSize: '0.85rem' }}>
               Abbandonare la stanza?{' '}
-              <button style={{ ...secondaryButton, color: '#a33' }} onClick={leaveRoom}>
+              <button style={{ ...pillButton, color: '#a33' }} onClick={leaveRoom}>
                 Sì, abbandona
               </button>{' '}
-              <button style={secondaryButton} onClick={() => setConfirmingLeaveRoom(false)}>
+              <button style={pillButton} onClick={() => setConfirmingLeaveRoom(false)}>
                 Annulla
               </button>
             </div>
@@ -2061,11 +2069,11 @@ export default function Game({ profile }) {
                   <span>
                     La tua scelta: <strong>{WONDERS[myPlayer.wonder_id].name}</strong> {WONDER_SIDE_ICON[myPlayer.wonder_side]}
                   </span>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button style={secondaryButton} onClick={flipWonderSide}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button style={pillButton} onClick={flipWonderSide}>
                       🔄 Gira ({WONDER_SIDE_ICON[myPlayer.wonder_side === 'A' ? 'B' : 'A']})
                     </button>
-                    <button style={secondaryButton} onClick={cancelWonder}>
+                    <button style={pillButton} onClick={cancelWonder}>
                       Annulla scelta
                     </button>
                   </div>
@@ -2079,6 +2087,7 @@ export default function Game({ profile }) {
                         minWidth: 0,
                         display: 'flex',
                         flexDirection: 'column',
+                        justifyContent: 'space-between',
                         gap: 2,
                         background: '#fff',
                         border: '1px solid #e4ddcc',
@@ -2129,6 +2138,7 @@ export default function Game({ profile }) {
                                 minWidth: 0,
                                 display: 'flex',
                                 flexDirection: 'column',
+                                justifyContent: 'space-between',
                                 gap: 2,
                                 background: '#fff',
                                 border: '1px solid #e4ddcc',
@@ -2392,7 +2402,10 @@ export default function Game({ profile }) {
                       padding: '10px 10px 18px 10px',
                       width: 190,
                       cursor: 'pointer',
-                      background: '#fff'
+                      background: '#fff',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between'
                     }}
                   >
                     <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
