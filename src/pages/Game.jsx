@@ -362,7 +362,7 @@ function cardEffectLabel(card, neighbors = {}) {
           +1 a scelta:{' '}
           {e.value.map((r, i) => (
             <span key={r}>
-              {i > 0 ? ' ' : ''}
+              {i > 0 ? '/' : ''}
               {resIconNode(r)}
             </span>
           ))}
@@ -428,7 +428,7 @@ function cardEffectLabel(card, neighbors = {}) {
         </>
       )
     case 'science_choice':
-      return `1 simbolo scientifico a scelta 🧭⚙️📝`
+      return `+1 a scelta: 🧭/⚙️/📝`
     default:
       return ''
   }
@@ -450,7 +450,7 @@ function guildEffectLabel(card) {
     case 'per_brown_grey_purple_self':
       return `+${card.scoringValue.vpEach}🏆 per ogni carta Marrone/Grigia/Viola nella tua città`
     case 'science_choice':
-      return `1 simbolo scientifico a scelta 🧭⚙️📝`
+      return `+1 a scelta: 🧭/⚙️/📝`
     default:
       return ''
   }
@@ -493,7 +493,7 @@ function wonderStageLabel(stage, neighbors = {}) {
           +1 a scelta:{' '}
           {stage.effectValue.map((r, i) => (
             <span key={r}>
-              {i > 0 ? ' ' : ''}
+              {i > 0 ? '/' : ''}
               {resIconNode(r)}
             </span>
           ))}
@@ -505,7 +505,7 @@ function wonderStageLabel(stage, neighbors = {}) {
       break
     case 'science':
       base =
-        stage.effectValue === 1 ? `1 simbolo scientifico a scelta 🧭⚙️📝` : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
+        `+${stage.effectValue} a scelta: 🧭/⚙️/📝`
       break
     case 'trade_discount': {
       const hasLeftW = stage.effectValue.neighbors.includes('left')
@@ -587,7 +587,7 @@ function wonderStageLabelText(stage, neighbors = {}) {
       base = `+${stage.effectValue}⚔️`
       break
     case 'science':
-      base = stage.effectValue === 1 ? `1 simbolo scientifico a scelta 🧭⚙️📝` : `${stage.effectValue} simboli scientifici a scelta 🧭⚙️📝`
+      base = `+${stage.effectValue} a scelta: 🧭/⚙️/📝`
       break
     case 'trade_discount': {
       const hasLeftW = stage.effectValue.neighbors.includes('left')
@@ -791,6 +791,17 @@ export default function Game({ profile }) {
     } catch (err) {
       setError(err.message)
     }
+  }
+
+  // Rimuove un bot: basta cancellare la riga players (is_bot=true, la
+  // policy dedicata permette a chiunque nella partita di farlo) — la
+  // riga player_hands sparisce da sola grazie a "on delete cascade", e
+  // la sua Meraviglia torna automaticamente disponibile per chiunque
+  // (chosenWonderIds si ricalcola dai players rimasti).
+  async function removeBot(botId) {
+    setError(null)
+    const { error } = await supabase.from('players').delete().eq('id', botId).eq('is_bot', true)
+    if (error) setError(error.message)
   }
 
   async function startGame() {
@@ -1915,23 +1926,46 @@ export default function Game({ profile }) {
     return (
       <div style={page}>
         <div style={{ ...cardWide, width: 820 }}>
-          <h1 style={title}>Stanza {game.room_code}</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <h1 style={{ ...title, margin: 0 }}>Stanza {game.room_code}</h1>
+            <button onClick={() => navigate('/')} style={linkText}>
+              ← Lobby
+            </button>
+          </div>
           <p style={{ textAlign: 'center', color: '#5a5142', marginTop: -12 }}>
             {numPlayers} giocator{numPlayers === 1 ? 'e' : 'i'} (min. 3, max. 7)
           </p>
 
           <div style={{ margin: '1rem 0' }}>
             {players.map((p) => (
-              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #eee' }}>
+              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #eee' }}>
                 <span>{p.nickname}</span>
-                <span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {p.wonder_id ? `${WONDERS[p.wonder_id].name} ${WONDER_SIDE_ICON[p.wonder_side]} · ${wonderStartResourceLabel(p.wonder_id)}` : '— sceglie...'}
+                  {p.is_bot && (
+                    <button style={{ ...secondaryButton, padding: '2px 8px', fontSize: '0.72rem' }} onClick={() => removeBot(p.id)}>
+                      ✕ Rimuovi
+                    </button>
+                  )}
                 </span>
               </div>
             ))}
           </div>
 
-          <div>
+          {numPlayers < 7 && WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).length > 0 && (
+            <button style={{ ...secondaryButton, marginTop: 4 }} onClick={addBot}>
+              🤖 Aggiungi bot
+            </button>
+          )}
+
+          {canStart && (
+            <button style={{ ...primaryButton, marginTop: 10, marginLeft: 10 }} onClick={startGame}>
+              ▶️ Avvia partita
+            </button>
+          )}
+          {error && <p style={errorText}>{error}</p>}
+
+          <div style={{ marginTop: 16 }}>
             {myPlayer.wonder_id && (
               <div
                 style={{
@@ -2040,19 +2074,6 @@ export default function Game({ profile }) {
               )}
             </div>
           </div>
-
-          {numPlayers < 7 && WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).length > 0 && (
-            <button style={{ ...secondaryButton, marginTop: 10 }} onClick={addBot}>
-              🤖 Aggiungi bot
-            </button>
-          )}
-
-          {canStart && (
-            <button style={{ ...primaryButton, marginTop: 16 }} onClick={startGame}>
-              ▶️ Avvia partita
-            </button>
-          )}
-          {error && <p style={errorText}>{error}</p>}
         </div>
       </div>
     )
@@ -2280,8 +2301,8 @@ export default function Game({ profile }) {
                   <div
                     key={cardId}
                     onClick={() => {
+                      if (selectedCardId !== cardId) setBuyPreference(null)
                       setSelectedCardId(cardId)
-                      setBuyPreference(null)
                     }}
                     style={{
                       position: 'relative',

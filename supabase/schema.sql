@@ -165,6 +165,12 @@ create policy "players: chiunque nella partita aggiorna un bot" on players
       select 1 from players p2 where p2.game_id = players.game_id and p2.user_id = auth.uid()
     )
   );
+create policy "players: chiunque nella partita rimuove un bot" on players
+  for delete using (
+    is_bot = true and exists (
+      select 1 from players p2 where p2.game_id = players.game_id and p2.user_id = auth.uid()
+    )
+  );
 
 -- player_hands: leggibile dal proprietario, oppure da chi e' il
 -- destinatario indicato in outgoing_hand_for (il vicino che deve
