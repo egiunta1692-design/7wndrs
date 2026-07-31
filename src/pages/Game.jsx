@@ -1341,8 +1341,13 @@ export default function Game({ profile }) {
           resolvingBotsRef.current.delete(key)
           continue
         }
+        // IMPORTANTE: non si toglie la chiave dopo resolvePlayerTurn
+        // (stessa cautela della scelta, vedi commento lì) — anche se qui
+        // il blocco atomico su turn_applied dentro resolvePlayerTurn
+        // impedirebbe comunque una doppia scrittura, toglierla subito
+        // sprecherebbe comunque un'intera ricerca (fino a 5 secondi) per
+        // niente se l'eco realtime non è ancora arrivata.
         await resolvePlayerTurn(bot, botHand)
-        resolvingBotsRef.current.delete(key)
       }
     })()
   }, [game, players, myHandRows, gameId])
@@ -1480,9 +1485,20 @@ export default function Game({ profile }) {
         choosingBotsRef.current.add(key)
         try {
           await chooseActionFor(bot, botHand, botSeat, decision.cardId, decision.action, decision.preference)
+          // IMPORTANTE: non si toglie la chiave dopo un successo. Il
+          // motivo del bug appena corretto: toglierla subito lasciava
+          // una finestra reale tra "scrittura confermata" e "l'eco
+          // realtime aggiorna ready_this_turn nello stato locale", in
+          // cui un nuovo giro dell'effetto vedeva ancora bot.ready_this_turn
+          // false E la chiave già libera — scegliendo di nuovo per lo
+          // stesso turno (osservato in partita: lo stesso bot sceglieva
+          // più volte, riducendo la mano ad ogni passaggio). La chiave è
+          // già specifica per turno/Epoca, quindi non serve ripulirla:
+          // diventa naturalmente inutile non appena il turno avanza.
         } catch (err) {
           console.error('[bot]', bot.nickname, 'errore azione:', err)
-        } finally {
+          // Qui SÌ si toglie: un errore reale non ha scritto nulla,
+          // meglio permettere un nuovo tentativo al prossimo giro.
           choosingBotsRef.current.delete(key)
         }
       }
