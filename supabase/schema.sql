@@ -85,6 +85,14 @@ create table if not exists players (
   unique (game_id, user_id)
 );
 
+-- Impedisce a livello di database che due giocatori della stessa
+-- partita scelgano la stessa Meraviglia+lato: se due client scrivono
+-- quasi simultaneamente, solo il primo riesce, il secondo riceve un
+-- errore di vincolo violato (gestito lato client in chooseWonder,
+-- Game.jsx) — protezione robusta contro la race condition, non basata
+-- solo su un controllo "ottimistico" lato applicazione.
+create unique index if not exists players_unique_wonder_pick on players (game_id, wonder_id, wonder_side) where wonder_id is not null;
+
 -- ============================================================
 -- PLAYER_HANDS: stato PRIVATO (mano + azione del turno) piu' lo slot
 -- "outgoing" leggibile anche dal vicino destinatario (vedi sopra).

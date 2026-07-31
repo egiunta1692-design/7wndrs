@@ -26,6 +26,7 @@ import {
   canBuildWonderStage,
   scoreGame,
   getCardData,
+  computeColorCountingBonus,
   decideBotAction,
   pickRandomWonder
 } from '../game-engine'
@@ -741,7 +742,15 @@ export default function Game({ profile }) {
   const chosenWonderIds = new Set(players.filter((p) => p.wonder_id).map((p) => p.wonder_id))
 
   async function chooseWonder(wonderId, side) {
-    await supabase.from('players').update({ wonder_id: wonderId, wonder_side: side }).eq('id', myPlayer.id)
+    setError(null)
+    const { error } = await supabase.from('players').update({ wonder_id: wonderId, wonder_side: side }).eq('id', myPlayer.id)
+    if (error) {
+      // Codice 23505 = vincolo unico violato (players_unique_wonder_pick):
+      // qualcun altro ha scelto la stessa Meraviglia+lato un istante
+      // prima. Messaggio chiaro invece dell'errore tecnico grezzo — la
+      // lista si aggiorna comunque da sola appena arriva l'evento realtime.
+      setError(error.code === '23505' ? 'Qualcun altro ha appena scelto questa Meraviglia — riprova con un\'altra.' : error.message)
+    }
   }
 
   async function cancelWonder() {
@@ -749,8 +758,12 @@ export default function Game({ profile }) {
   }
 
   async function flipWonderSide() {
+    setError(null)
     const newSide = myPlayer.wonder_side === 'A' ? 'B' : 'A'
-    await supabase.from('players').update({ wonder_side: newSide }).eq('id', myPlayer.id)
+    const { error } = await supabase.from('players').update({ wonder_side: newSide }).eq('id', myPlayer.id)
+    if (error) {
+      setError(error.code === '23505' ? "Il lato opposto è appena stato preso da qualcun altro con questa stessa Meraviglia — riprova." : error.message)
+    }
   }
 
   // Crea un giocatore "robot": nessuna sessione propria (user_id
@@ -946,6 +959,16 @@ export default function Game({ profile }) {
     const isLastTurnOfAge = game.turn_number >= 6
     const allPurchases = bundleWith ? [...(prepared.primary.purchases || []), ...(prepared.bonus.purchases || [])] : prepared.purchases || []
 
+    // Al turno 6, se non si ha il potere di Olympia ("gioca l'ultima
+    // carta di ogni Epoca", gestito con un bundle a parte che consuma
+    // ENTRAMBE le carte), la carta NON scelta va scartata per regolamento
+    // — e finisce nella pila condivisa come qualunque altro scarto,
+    // pescabile da Halikarnassós. La si registra qui, nell'azione
+    // preparata, per poterla aggiungere alla pila alla risoluzione.
+    if (isLastTurnOfAge && !bundleWith && remainingHand.length > 0) {
+      prepared.turn6Leftover = remainingHand[0]
+    }
+
     // Traduce il piano d'acquisto (chi/quanto) in importi dovuti ai
     // vicini reali, indirizzati alla loro user_id: ognuno di loro se
     // li accrediterà da solo durante la risoluzione del proprio turno
@@ -1071,6 +1094,50 @@ export default function Game({ profile }) {
 
       const updatedPublic = applyPreparedActionOrBundle(prepared, baselinePlayer)
       const isLastTurnOfAge = game.turn_number >= 6
+
+      // Vigneto/Bazar/Faro/Porto/Camera di Commercio/Palestra
+      // Gladiatoria/Arena: il conteggio va fatto ORA, dopo l'azione di
+      // questo turno, e deve includere ANCHE le carte che i vicini
+      // stanno costruendo in QUESTO STESSO turno — per regolamento le
+      // carte si giocano tutte simultaneamente, non in sequenza. Si
+      // inietta il risultato nel bonusCoins della azione stessa (invece
+      // di sommarlo solo al saldo) così il riepilogo "Turno precedente"
+      // e il controllo di coerenza restano corretti a valle.
+      const builtThisTurnByMe = []
+      if (prepared.bundle) {
+        if (prepared.primary?.action === 'build') builtThisTurnByMe.push(prepared.primary)
+        if (prepared.bonus?.action === 'build') builtThisTurnByMe.push(prepared.bonus)
+      } else if (prepared.action === 'build') {
+        builtThisTurnByMe.push(prepared)
+      }
+      if (builtThisTurnByMe.length > 0) {
+        const targetSeat = turnOrder.indexOf(targetPlayer.id)
+        const targetLeftNeighbor = seatToPlayer[leftNeighborSeat(targetSeat, numPlayers)] || null
+        const targetRightNeighbor = seatToPlayer[rightNeighborSeat(targetSeat, numPlayers)] || null
+        const neighborIds = [targetLeftNeighbor?.id, targetRightNeighbor?.id].filter(Boolean)
+        const [{ data: freshNeighbors }, { data: neighborHands }] = await Promise.all([
+          neighborIds.length ? supabase.from('players').select().in('id', neighborIds) : Promise.resolve({ data: [] }),
+          neighborIds.length ? supabase.from('player_hands').select('player_id, pending_action').in('player_id', neighborIds) : Promise.resolve({ data: [] })
+        ])
+        const freshLeft = targetLeftNeighbor ? freshNeighbors?.find((p) => p.id === targetLeftNeighbor.id) || targetLeftNeighbor : null
+        const freshRight = targetRightNeighbor ? freshNeighbors?.find((p) => p.id === targetRightNeighbor.id) || targetRightNeighbor : null
+        function builtThisTurnBy(neighborId) {
+          const pa = neighborHands?.find((h) => h.player_id === neighborId)?.pending_action
+          if (!pa) return []
+          if (pa.bundle) return [pa.primary, pa.bonus].filter((a) => a?.action === 'build').map((a) => a.cardId)
+          return pa.action === 'build' ? [pa.cardId] : []
+        }
+        const leftBuiltThisTurn = targetLeftNeighbor ? builtThisTurnBy(targetLeftNeighbor.id) : []
+        const rightBuiltThisTurn = targetRightNeighbor ? builtThisTurnBy(targetRightNeighbor.id) : []
+        for (const actionEntry of builtThisTurnByMe) {
+          const card = getCardData(actionEntry.cardId)
+          const extraBonus = computeColorCountingBonus(card, updatedPublic, freshLeft, freshRight, leftBuiltThisTurn, rightBuiltThisTurn)
+          if (extraBonus) {
+            actionEntry.bonusCoins = (actionEntry.bonusCoins || 0) + extraBonus
+            updatedPublic.coins += extraBonus
+          }
+        }
+      }
 
       // Incassa eventuali pagamenti che i vicini devono per risorse
       // comprate DA QUESTO GIOCATORE questo turno (vedi chooseActionFor:
@@ -1258,6 +1325,7 @@ export default function Game({ profile }) {
         if (prepared.action === 'discard') discardedIds.push(prepared.cardId)
         if (prepared.primary?.action === 'discard') discardedIds.push(prepared.primary.cardId)
         if (prepared.bonus?.action === 'discard') discardedIds.push(prepared.bonus.cardId)
+        if (prepared.turn6Leftover) discardedIds.push(prepared.turn6Leftover)
         const pickedFromDiscard = prepared.kind === 'discard_build' ? prepared.discardCardId : null
         if (discardedIds.length > 0 || pickedFromDiscard) {
           const { data: freshGame } = await supabase.from('games').select('discard_pile').eq('id', gameId).single()

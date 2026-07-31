@@ -381,34 +381,64 @@ function colorCountBuilt(player, color) {
   return (player.built_cards || []).filter((id) => getCardData(id)?.color === color).length
 }
 
-// Monete guadagnate IMMEDIATAMENTE alla costruzione di questa carta
-// (oltre all'eventuale coinCost del "coins_on_build" già gestito).
-// Copre: coins_per_color (Vigneto/Bazar, contano se stesso + vicini),
-// per_color_coins_and_vp (Faro/Porto/Camera di Commercio/Palestra
-// Gladiatoria, contano solo la propria città), coins_and_vp_per_wonder_stage
-// (Arena, per ogni stadio Meraviglia già costruito).
-function computeImmediateBuildCoins(card, player, leftNeighbor, rightNeighbor) {
+// Monete guadagnate IMMEDIATAMENTE alla costruzione — SOLO la parte "a
+// valore fisso" (coins_on_build, es. Taverna), che non dipende da nessun
+// conteggio quindi è sicura da calcolare subito al momento della scelta.
+// Le varianti "per ogni carta di un colore" (Vigneto/Bazar/Faro/ecc.) e
+// "per ogni stadio Meraviglia" (Arena) sono state spostate in
+// computeColorCountingBonus, calcolata DOPO che il turno si risolve —
+// vedi lì per il perché.
+function computeImmediateBuildCoins(card) {
   const e = card?.effect
   if (!e) return 0
   if (e.kind === 'coins_on_build') return e.value
+  return 0
+}
+
+// Monete guadagnate alla costruzione di carte come Vigneto/Bazar (contano
+// le carte di un colore nella propria città E in quella dei vicini),
+// Faro/Porto/Camera di Commercio/Palestra Gladiatoria (solo la propria
+// città) e Arena (per ogni stadio Meraviglia). Per regolamento, le carte
+// si giocano tutte simultaneamente ogni turno: il conteggio deve quindi
+// includere ANCHE le carte che i vicini stanno costruendo nello STESSO
+// turno, non solo quelle già presenti da prima — motivo per cui questa
+// funzione va chiamata DOPO che il turno di questo giocatore (e quindi
+// idealmente anche quello dei vicini) è stato risolto, con lo stato più
+// aggiornato possibile di ciascuno, invece che al momento della scelta.
+//
+// updatedPlayer: lo stato di QUESTO giocatore già DOPO l'azione di
+// questo turno (built_cards/wonder_stages_built già aggiornati).
+// leftNeighbor/rightNeighbor: stato attuale dei vicini.
+// leftBuiltThisTurn/rightBuiltThisTurn: id delle carte che i vicini
+// stanno costruendo in QUESTO STESSO turno (dalla loro pending_action),
+// da sommare al loro conteggio anche se non ancora scritte nel database.
+export function computeColorCountingBonus(card, updatedPlayer, leftNeighbor, rightNeighbor, leftBuiltThisTurn = [], rightBuiltThisTurn = []) {
+  const e = card?.effect
+  if (!e) return 0
+  function neighborColorCount(neighbor, color, builtThisTurn) {
+    if (!neighbor) return 0
+    let count = colorCountBuilt(neighbor, color)
+    for (const id of builtThisTurn) {
+      if (getCardData(id)?.color === color) count += 1
+    }
+    return count
+  }
   if (e.kind === 'coins_per_color') {
     const { color, coinsEach, scope } = e.value
-    let count = colorCountBuilt(player, color)
-    if (color === card.color) count += 1 // la carta stessa, non ancora in built_cards a questo punto
+    let count = colorCountBuilt(updatedPlayer, color) // include già la carta appena costruita da questo giocatore
     if (scope === 'self_and_neighbors') {
-      if (leftNeighbor) count += colorCountBuilt(leftNeighbor, color)
-      if (rightNeighbor) count += colorCountBuilt(rightNeighbor, color)
+      count += neighborColorCount(leftNeighbor, color, leftBuiltThisTurn)
+      count += neighborColorCount(rightNeighbor, color, rightBuiltThisTurn)
     }
     return coinsEach * count
   }
   if (e.kind === 'per_color_coins_and_vp') {
-    const { color, coinsEach, includeSelf } = e.value
-    let count = colorCountBuilt(player, color)
-    if (includeSelf) count += 1
+    const { color, coinsEach } = e.value
+    const count = colorCountBuilt(updatedPlayer, color) // include già la carta stessa se dello stesso colore (includeSelf)
     return coinsEach * count
   }
   if (e.kind === 'coins_and_vp_per_wonder_stage') {
-    return e.value.coinsEach * (player.wonder_stages_built || 0)
+    return e.value.coinsEach * (updatedPlayer.wonder_stages_built || 0)
   }
   return 0
 }
@@ -421,7 +451,7 @@ export function prepareAction(action, cardId, player, leftNeighbor, rightNeighbo
     const check = canBuildCard(cardId, player, leftNeighbor, rightNeighbor, preference, gameContext)
     if (!check.possible) throw new Error(check.reason)
     const card = getCardData(cardId)
-    const bonusCoins = computeImmediateBuildCoins(card, player, leftNeighbor, rightNeighbor)
+    const bonusCoins = computeImmediateBuildCoins(card)
     return { action: 'build', cardId, coinCost: check.coinCost || 0, bonusCoins, purchases: check.purchases || [] }
   }
   if (action === 'wonder') {
@@ -490,7 +520,7 @@ export function prepareFreeBuild(cardId, player, leftNeighbor, rightNeighbor) {
   const card = getCardData(cardId)
   if (!card) throw new Error('Carta sconosciuta')
   if ((player.built_cards || []).includes(cardId)) throw new Error('Edificio già costruito')
-  const bonusCoins = computeImmediateBuildCoins(card, player, leftNeighbor, rightNeighbor)
+  const bonusCoins = computeImmediateBuildCoins(card)
   return { action: 'build', cardId, coinCost: 0, bonusCoins, purchases: [] }
 }
 
