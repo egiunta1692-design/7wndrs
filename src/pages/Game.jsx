@@ -999,7 +999,10 @@ export default function Game({ profile }) {
   // guardando lo stato attuale dei vicini, cosi' l'applicazione
   // successiva non dipende piu' da loro (vedi prepareAction).
   // ============================================================
+  const choosingRef = useRef(false)
   async function chooseAction(cardId, action, preference = null, bundleWith = null, bundleType = 'last_card') {
+    if (choosingRef.current) return // anti doppio-click: una scelta alla volta
+    choosingRef.current = true
     setError(null)
     try {
       await chooseActionFor(myPlayer, myHand, mySeat, cardId, action, preference, bundleWith, bundleType)
@@ -1008,6 +1011,8 @@ export default function Game({ profile }) {
       setBundlePrimaryChoice(null)
     } catch (err) {
       setError(err.message)
+    } finally {
+      choosingRef.current = false
     }
   }
 
@@ -1439,12 +1444,18 @@ export default function Game({ profile }) {
   // ============================================================
   // PILOTA AUTOMATICO DEI BOT — qualunque umano connesso fa muovere
   // anche i bot della partita, con le stesse identiche funzioni già
-  // usate per le proprie mosse (chooseActionFor). La stessa guardia
-  // atomica su turn_applied che protegge dalle doppie risoluzioni umane
-  // protegge automaticamente anche qui: se due umani provano a far
-  // giocare lo stesso bot nello stesso istante, solo uno dei due riesce
-  // (l'altro fallisce silenziosamente sul lock ottimistico).
+  // usate per le proprie mosse (chooseActionFor).
+  //
+  // ATTENZIONE: a differenza della RISOLUZIONE (protetta lato database
+  // dalla guardia atomica su turn_applied), la SCELTA non ha un blocco
+  // equivalente lato scrittura — chooseActionFor scrive
+  // incondizionatamente. Se questo effetto si riattivasse due volte per
+  // lo stesso bot prima che "ready_this_turn" si rifletta nello stato
+  // locale (es. per un cambiamento di "players" non correlato a questo
+  // bot), partirebbero due chiamate concorrenti. Il ref sotto blocca
+  // questo caso lato client, per bot+turno.
   // ============================================================
+  const choosingBotsRef = useRef(new Set())
   useEffect(() => {
     if (!game || game.status !== 'playing') return
     const bots = players.filter((p) => p.is_bot)
@@ -1455,6 +1466,8 @@ export default function Game({ profile }) {
       for (const bot of bots) {
         if (cancelled) return
         if (bot.ready_this_turn) continue
+        const key = `${bot.id}-${game.age}-${game.turn_number}`
+        if (choosingBotsRef.current.has(key)) continue
         const botHand = myHandRows.find((h) => h.player_id === bot.id)
         if (!botHand || botHand.dealt_age !== game.age || !botHand.hand?.length) continue
         const botSeat = turnOrder.indexOf(bot.id)
@@ -1464,10 +1477,13 @@ export default function Game({ profile }) {
         const gameContext = { age: game.age, turnNumber: game.turn_number }
         const decision = decideBotAction(botHand.hand, bot, botLeftNeighbor, botRightNeighbor, gameContext)
         if (!decision) continue
+        choosingBotsRef.current.add(key)
         try {
           await chooseActionFor(bot, botHand, botSeat, decision.cardId, decision.action, decision.preference)
         } catch (err) {
           console.error('[bot]', bot.nickname, 'errore azione:', err)
+        } finally {
+          choosingBotsRef.current.delete(key)
         }
       }
     }
