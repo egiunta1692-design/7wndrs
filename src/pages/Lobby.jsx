@@ -54,9 +54,14 @@ export default function Lobby({ profile, onSignOut }) {
     setLoading(true)
     setError(null)
     try {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser()
+      if (!user) throw new Error('Non sei autenticato')
+
       const { data: game, error: gameError } = await supabase
         .from('games')
-        .insert({ room_code: randomRoomCode(), status: 'waiting' })
+        .insert({ room_code: randomRoomCode(), status: 'waiting', created_by: user.id })
         .select()
         .single()
       if (gameError) throw gameError

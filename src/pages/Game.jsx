@@ -641,6 +641,8 @@ export default function Game({ profile }) {
   const [showBoard, setShowBoard] = useState(false)
   const [expandedPlayerIds, setExpandedPlayerIds] = useState(null) // null = default (solo il tuo pannello espanso); altrimenti Set esplicito dei pannelli aperti
   const [nowTick, setNowTick] = useState(Date.now())
+  const [confirmingDeleteRoom, setConfirmingDeleteRoom] = useState(false)
+  const [confirmingLeaveRoom, setConfirmingLeaveRoom] = useState(false)
 
   // Timer live: si aggiorna ogni secondo mentre la partita è in corso
   // (stesso principio del cronometro di Harmonies), calcolato dalla
@@ -707,6 +709,7 @@ export default function Game({ profile }) {
   const myHand = useMemo(() => myHandRows.find((h) => h.user_id === myUserId), [myHandRows, myUserId])
 
   const numPlayers = players.length
+  const isCreator = !!(myUserId && game?.created_by && game.created_by === myUserId)
   const turnOrder = game?.turn_order || []
   const mySeat = myPlayer ? turnOrder.indexOf(myPlayer.id) : -1
 
@@ -804,6 +807,26 @@ export default function Game({ profile }) {
     if (error) setError(error.message)
   }
 
+  // Solo il creatore può eliminare l'intera stanza (e solo prima
+  // dell'avvio, protetto anche lato database) — cancellazione a cascata,
+  // elimina automaticamente tutti i giocatori e le loro mani.
+  async function deleteRoom() {
+    setError(null)
+    const { error } = await supabase.from('games').delete().eq('id', gameId)
+    if (error) setError(error.message)
+    else navigate('/')
+  }
+
+  // Un giocatore che NON è il creatore può abbandonare la stanza (e solo
+  // prima dell'avvio, protetto anche lato database) — il creatore non
+  // può usare questa funzione, la policy la rifiuterebbe comunque.
+  async function leaveRoom() {
+    setError(null)
+    const { error } = await supabase.from('players').delete().eq('id', myPlayer.id)
+    if (error) setError(error.message)
+    else navigate('/')
+  }
+
   async function startGame() {
     const ids = players.map((p) => p.id)
     const n = ids.length
@@ -897,6 +920,7 @@ export default function Game({ profile }) {
   const dealingBotsRef = useRef(false)
   useEffect(() => {
     if (!game || game.status !== 'playing') return
+    if (!isCreator) return
     const deck = game.age_decks?.[String(game.age)]
     if (!deck) return
     if (dealingBotsRef.current) return
@@ -923,7 +947,7 @@ export default function Game({ profile }) {
       }
       dealingBotsRef.current = false
     })()
-  }, [game, players, myHandRows, turnOrder])
+  }, [game, players, myHandRows, turnOrder, isCreator])
 
   // ============================================================
   // SCELTA DELLA CARTA (fase di commit) — calcola SUBITO il costo
@@ -1418,6 +1442,12 @@ export default function Game({ profile }) {
   const resolvingBotsRef = useRef(new Set())
   useEffect(() => {
     if (!game || game.status !== 'playing') return
+    // Solo il creatore della stanza pilota i bot — se ogni umano connesso
+    // potesse farlo in parallelo, con più browser aperti si rischiavano
+    // disincronizzazioni (due client che agiscono sullo stesso bot quasi
+    // simultaneamente). La policy lato database rifiuterebbe comunque un
+    // non-creatore, ma è più pulito non tentare nemmeno la scrittura.
+    if (!isCreator) return
     if (!players.every((p) => p.ready_this_turn)) return
     const bots = players.filter((p) => p.is_bot && p.turn_applied < game.turn_number)
     if (bots.length === 0) return
@@ -1440,7 +1470,7 @@ export default function Game({ profile }) {
         await resolvePlayerTurn(bot, botHand)
       }
     })()
-  }, [game, players, myHandRows, gameId])
+  }, [game, players, myHandRows, gameId, isCreator])
 
 
 
@@ -1537,9 +1567,13 @@ export default function Game({ profile }) {
   }, [game, players, myPlayer, numPlayers, gameId])
 
   // ============================================================
-  // PILOTA AUTOMATICO DEI BOT — qualunque umano connesso fa muovere
-  // anche i bot della partita, con le stesse identiche funzioni già
-  // usate per le proprie mosse (chooseActionFor).
+  // PILOTA AUTOMATICO DEI BOT — SOLO il creatore della stanza fa
+  // muovere i bot della partita (mai gli altri umani connessi), con le
+  // stesse identiche funzioni già usate per le proprie mosse
+  // (chooseActionFor). Farlo pilotare da chiunque fosse connesso
+  // rischiava disincronizzazioni con più browser aperti — la policy
+  // lato database rifiuterebbe comunque un non-creatore, ma è più
+  // pulito non tentare nemmeno la scrittura da chi non è autorizzato.
   //
   // ATTENZIONE: a differenza della RISOLUZIONE (protetta lato database
   // dalla guardia atomica su turn_applied), la SCELTA non ha un blocco
@@ -1553,6 +1587,7 @@ export default function Game({ profile }) {
   const choosingBotsRef = useRef(new Set())
   useEffect(() => {
     if (!game || game.status !== 'playing') return
+    if (!isCreator) return
     const bots = players.filter((p) => p.is_bot)
     if (bots.length === 0) return
 
@@ -1609,7 +1644,7 @@ export default function Game({ profile }) {
     return () => {
       cancelled = true
     }
-  }, [game, players, myHandRows, turnOrder, seatToPlayer, numPlayers])
+  }, [game, players, myHandRows, turnOrder, seatToPlayer, numPlayers, isCreator])
 
   if (!game || !myPlayer) return <Loader message="Carico la partita..." />
 
@@ -1939,10 +1974,13 @@ export default function Game({ profile }) {
           <div style={{ margin: '1rem 0' }}>
             {players.map((p) => (
               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #eee' }}>
-                <span>{p.nickname}</span>
+                <span>
+                  {p.nickname}
+                  {game.created_by === p.user_id && <span title="Creatore della stanza"> 👑</span>}
+                </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {p.wonder_id ? `${WONDERS[p.wonder_id].name} ${WONDER_SIDE_ICON[p.wonder_side]} · ${wonderStartResourceLabel(p.wonder_id)}` : '— sceglie...'}
-                  {p.is_bot && (
+                  {p.is_bot && isCreator && (
                     <button style={{ ...secondaryButton, padding: '2px 8px', fontSize: '0.72rem' }} onClick={() => removeBot(p.id)}>
                       ✕ Rimuovi
                     </button>
@@ -1952,7 +1990,7 @@ export default function Game({ profile }) {
             ))}
           </div>
 
-          {numPlayers < 7 && WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).length > 0 && (
+          {isCreator && numPlayers < 7 && WONDER_IDS.filter((id) => !chosenWonderIds.has(id)).length > 0 && (
             <button style={{ ...secondaryButton, marginTop: 4 }} onClick={addBot}>
               🤖 Aggiungi bot
             </button>
@@ -1962,6 +2000,40 @@ export default function Game({ profile }) {
             <button style={{ ...primaryButton, marginTop: 10, marginLeft: 10 }} onClick={startGame}>
               ▶️ Avvia partita
             </button>
+          )}
+
+          <div style={{ marginTop: 10 }}>
+            {isCreator ? (
+              <button style={{ ...secondaryButton, color: '#a33' }} onClick={() => setConfirmingDeleteRoom(true)}>
+                🗑️ Elimina stanza
+              </button>
+            ) : (
+              <button style={{ ...secondaryButton, color: '#a33' }} onClick={() => setConfirmingLeaveRoom(true)}>
+                🚪 Abbandona stanza
+              </button>
+            )}
+          </div>
+          {confirmingDeleteRoom && (
+            <div style={{ marginTop: 8, fontSize: '0.85rem' }}>
+              Eliminare la stanza per tutti? Non si può annullare.{' '}
+              <button style={{ ...secondaryButton, color: '#a33' }} onClick={deleteRoom}>
+                Sì, elimina
+              </button>{' '}
+              <button style={secondaryButton} onClick={() => setConfirmingDeleteRoom(false)}>
+                Annulla
+              </button>
+            </div>
+          )}
+          {confirmingLeaveRoom && (
+            <div style={{ marginTop: 8, fontSize: '0.85rem' }}>
+              Abbandonare la stanza?{' '}
+              <button style={{ ...secondaryButton, color: '#a33' }} onClick={leaveRoom}>
+                Sì, abbandona
+              </button>{' '}
+              <button style={secondaryButton} onClick={() => setConfirmingLeaveRoom(false)}>
+                Annulla
+              </button>
+            </div>
           )}
           {error && <p style={errorText}>{error}</p>}
 

@@ -56,7 +56,9 @@ create table if not exists games (
   military_log jsonb not null default '{}'::jsonb,   -- { "1": { playerId: 'win'|'lose'|'tie' } }
   started_at timestamptz,
   finished_at timestamptz,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  created_by uuid,                                   -- user_id di chi ha creato la stanza — non può abbandonarla, è l'unico che può eliminarla o gestire i bot (vedi RLS sotto)
+  created_by uuid                                    -- user_id di chi ha creato la stanza: non può abbandonarla (solo cancellarla tutta), è l'unico che può aggiungere/rimuovere bot
 );
 
 -- ============================================================
@@ -140,6 +142,11 @@ create policy "games: creazione da autenticati" on games
   for insert with check (auth.uid() is not null);
 create policy "games: aggiornamento da autenticati" on games
   for update using (auth.uid() is not null);
+-- Solo il creatore della stanza può eliminarla, e solo prima che la
+-- partita sia iniziata (cancellazione a cascata: elimina anche tutte le
+-- righe players/player_hands collegate).
+create policy "games: il creatore elimina la stanza prima dell'avvio" on games
+  for delete using (created_by = auth.uid() and status = 'waiting');
 
 create policy "players: lettura pubblica" on players
   for select using (true);
@@ -147,28 +154,41 @@ create policy "players: un utente crea solo la propria riga" on players
   for insert with check (auth.uid() = user_id);
 create policy "players: un utente aggiorna solo la propria riga" on players
   for update using (auth.uid() = user_id);
+-- Un giocatore può abbandonare la stanza (cancellare la propria riga)
+-- SOLO se: la partita non è ancora iniziata, e lui NON è il creatore
+-- della stanza (il creatore non può abbandonare, solo eliminare tutto).
+create policy "players: un non-creatore abbandona la stanza prima dell'avvio" on players
+  for delete using (
+    auth.uid() = user_id and exists (
+      select 1 from games g where g.id = players.game_id and g.status = 'waiting' and g.created_by <> auth.uid()
+    )
+  );
 
 -- BOT: nessuna sessione propria, quindi auth.uid() = user_id non puo' mai
--- valere per loro. Permesso creare/aggiornare una riga bot SOLO a chi e'
--- GIA' un giocatore (umano) nella STESSA partita — coerente con lo
--- spirito "client fidato" gia' in uso in tutto il progetto: qualunque
--- umano connesso puo' "guidare" i bot della propria stanza.
-create policy "players: chiunque nella partita crea un bot" on players
+-- valere per loro. A differenza delle versioni precedenti di questo
+-- schema, la gestione dei bot (creazione, aggiornamento — incluso il
+-- "pilotaggio" delle loro mosse durante la partita — e rimozione) è ora
+-- riservata SOLO al creatore della stanza, non più a "chiunque sia già
+-- un giocatore nella partita": con più umani connessi, lasciare che
+-- ognuno guidi gli stessi bot in parallelo rischiava disincronizzazioni
+-- (vedi Game.jsx, la logica di pilotaggio ora si attiva solo se
+-- myUserId === game.created_by).
+create policy "players: solo il creatore crea un bot" on players
   for insert with check (
     is_bot = true and exists (
-      select 1 from players p2 where p2.game_id = players.game_id and p2.user_id = auth.uid()
+      select 1 from games g where g.id = players.game_id and g.created_by = auth.uid()
     )
   );
-create policy "players: chiunque nella partita aggiorna un bot" on players
+create policy "players: solo il creatore aggiorna un bot" on players
   for update using (
     is_bot = true and exists (
-      select 1 from players p2 where p2.game_id = players.game_id and p2.user_id = auth.uid()
+      select 1 from games g where g.id = players.game_id and g.created_by = auth.uid()
     )
   );
-create policy "players: chiunque nella partita rimuove un bot" on players
+create policy "players: solo il creatore rimuove un bot" on players
   for delete using (
     is_bot = true and exists (
-      select 1 from players p2 where p2.game_id = players.game_id and p2.user_id = auth.uid()
+      select 1 from games g where g.id = players.game_id and g.created_by = auth.uid()
     )
   );
 
@@ -189,22 +209,21 @@ create policy "player_hands: insert solo proprio" on player_hands
 create policy "player_hands: update solo proprio" on player_hands
   for update using (auth.uid() = user_id);
 
--- BOT: stesso principio delle policy su "players" — la mano di un bot è
--- creabile/leggibile/scrivibile da qualunque umano che sia GIA' un
--- giocatore nella stessa partita di quel bot.
-create policy "player_hands: chiunque nella partita gestisce la mano di un bot" on player_hands
+-- BOT: come sopra per "players" — la mano di un bot è gestibile SOLO dal
+-- creatore della stanza, non più da qualunque umano in partita.
+create policy "player_hands: solo il creatore gestisce la mano di un bot" on player_hands
   for all using (
     exists (
       select 1 from players bot_p
-      join players me_p on me_p.game_id = bot_p.game_id
-      where bot_p.id = player_hands.player_id and bot_p.is_bot = true and me_p.user_id = auth.uid()
+      join games g on g.id = bot_p.game_id
+      where bot_p.id = player_hands.player_id and bot_p.is_bot = true and g.created_by = auth.uid()
     )
   )
   with check (
     exists (
       select 1 from players bot_p
-      join players me_p on me_p.game_id = bot_p.game_id
-      where bot_p.id = player_hands.player_id and bot_p.is_bot = true and me_p.user_id = auth.uid()
+      join games g on g.id = bot_p.game_id
+      where bot_p.id = player_hands.player_id and bot_p.is_bot = true and g.created_by = auth.uid()
     )
   );
 
