@@ -804,7 +804,16 @@ export default function Game({ profile }) {
   async function removeBot(botId) {
     setError(null)
     const { error } = await supabase.from('players').delete().eq('id', botId).eq('is_bot', true)
-    if (error) setError(error.message)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    // Aggiornamento locale immediato: la cancellazione sul database è già
+    // confermata a questo punto, non ha senso aspettare l'eco in tempo
+    // reale (che in alcuni progetti Supabase richiede una configurazione
+    // aggiuntiva per gli eventi DELETE) per far sparire il bot dalla
+    // sala d'attesa — stessa logica già usata altrove in questo file.
+    setPlayers((prev) => prev.filter((p) => p.id !== botId))
   }
 
   // Solo il creatore può eliminare l'intera stanza (e solo prima
@@ -1932,14 +1941,14 @@ export default function Game({ profile }) {
                       fontSize: '0.68rem'
                     }}
                   >
+                    <div style={{ textAlign: 'center' }}>{wonderStageLabel(s, pNeighborNicknames)}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{costLabel(s.cost)}</span>
+                      <span>Costo: {costLabel(s.cost)}</span>
                       <span>
                         {built ? '🏛️ ' : ''}
                         {STAGE_EMOJI[i + 1] || i + 1}
                       </span>
                     </div>
-                    <div style={{ textAlign: 'center' }}>{wonderStageLabel(s, pNeighborNicknames)}</div>
                   </div>
                 )
               })}
@@ -2078,11 +2087,11 @@ export default function Game({ profile }) {
                         fontSize: '0.68rem'
                       }}
                     >
+                      <div style={{ textAlign: 'center' }}>{wonderStageLabel(s)}</div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{costLabel(s.cost)}</span>
+                        <span>Costo: {costLabel(s.cost)}</span>
                         <span>{STAGE_EMOJI[i + 1] || i + 1}</span>
                       </div>
-                      <div style={{ textAlign: 'center' }}>{wonderStageLabel(s)}</div>
                     </div>
                   ))}
                 </div>
@@ -2128,11 +2137,11 @@ export default function Game({ profile }) {
                                 fontSize: '0.68rem'
                               }}
                             >
+                              <div style={{ textAlign: 'center' }}>{wonderStageLabel(s)}</div>
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span>{costLabel(s.cost)}</span>
+                                <span>Costo: {costLabel(s.cost)}</span>
                                 <span>{STAGE_EMOJI[i + 1] || i + 1}</span>
                               </div>
-                              <div style={{ textAlign: 'center' }}>{wonderStageLabel(s)}</div>
                             </div>
                           ))}
                         </div>
