@@ -1471,6 +1471,18 @@ export default function Game({ profile }) {
       for (const bot of bots) {
         if (cancelled) return
         if (bot.ready_this_turn) continue
+        // IMPORTANTE: non basta "non pronto" — un bot che ha appena
+        // risolto il PROPRIO turno corrente (mentre altri giocatori non
+        // l'hanno ancora fatto) ha già una mano nuova e ready_this_turn
+        // torna false, ma il numero di turno GLOBALE (game.turn_number)
+        // resta fermo finché non risolvono tutti. Un bot, reagendo
+        // all'istante (a differenza di un umano, che ha naturalmente un
+        // ritardo fisico), potrebbe scegliere subito un'azione con quella
+        // mano nuova ma etichettata ancora col turno vecchio — bug
+        // osservato in partita: la scelta sovrascriveva quella corretta
+        // già inviata con dati del turno sbagliato. Un bot può scegliere
+        // SOLO se ha davvero raggiunto (non superato) il turno corrente.
+        if (bot.turn_applied !== game.turn_number - 1) continue
         const key = `${bot.id}-${game.age}-${game.turn_number}`
         if (choosingBotsRef.current.has(key)) continue
         const botHand = myHandRows.find((h) => h.player_id === bot.id)
