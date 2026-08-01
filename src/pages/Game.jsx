@@ -2424,13 +2424,32 @@ export default function Game({ profile }) {
                 // errore imprevisto nel calcolo) resta cliccabile.
                 let buildImpossible = false
                 try {
-                  buildImpossible = !canBuildCard(cardId, myPlayer, leftNeighbor, rightNeighbor, null, { age: game.age, turnNumber: game.turn_number }).possible
+                  const buildCheck = canBuildCard(cardId, myPlayer, leftNeighbor, rightNeighbor, null, { age: game.age, turnNumber: game.turn_number })
+                  buildImpossible = !buildCheck.possible
+                  if (buildImpossible) {
+                    console.log('[buildImpossible] carta', cardId, 'bloccata — dati usati:', {
+                      myBuiltCards: myPlayer.built_cards,
+                      myCoins: myPlayer.coins,
+                      leftBuiltCards: leftNeighbor?.built_cards,
+                      rightBuiltCards: rightNeighbor?.built_cards,
+                      reason: buildCheck.reason
+                    })
+                  }
                 } catch {
                   buildImpossible = false
                 }
                 let wonderImpossible = false
                 try {
-                  wonderImpossible = !canBuildWonderStage(myPlayer, leftNeighbor, rightNeighbor).possible
+                  const wonderCheck = canBuildWonderStage(myPlayer, leftNeighbor, rightNeighbor)
+                  wonderImpossible = !wonderCheck.possible
+                  if (wonderImpossible) {
+                    console.log('[wonderImpossible] stadio bloccato — dati usati:', {
+                      myBuiltCards: myPlayer.built_cards,
+                      myCoins: myPlayer.coins,
+                      leftBuiltCards: leftNeighbor?.built_cards,
+                      rightBuiltCards: rightNeighbor?.built_cards
+                    })
+                  }
                 } catch {
                   wonderImpossible = false
                 }
